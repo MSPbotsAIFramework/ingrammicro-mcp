@@ -132,14 +132,14 @@ Since this is a stateless multi-tenant service, the token is **not
 cached** — every tool call re-authenticates from scratch (same pattern as
 `cisco-umbrella-mcp`/`covedataprotection-mcp`/`webroot-mcp`).
 
-### HEADER 授权参数说明
+### HEADER Authorization Parameters
 
-| Header | 类型 | 是否必填 | 默认值 | 枚举值 | 字段描述 | Example |
+| Header | Type | Required | Default | Allowed values | Description | Example |
 |---|---|---|---|---|---|---|
-| `X-IngramMicro-Client-Id` | string | 是 | 无 | 无 | OAuth2 client_credentials 的 Client ID | `abc123...` |
-| `X-IngramMicro-Client-Secret` | string | 是 | 无 | 无 | OAuth2 client_credentials 的 Client Secret | `xyz789...` |
-| `X-IngramMicro-Customer-Number` | string | 是 | 无 | 无 | Ingram Micro 经销商账号（对应上游 `IM-CustomerNumber`），如 `20-222222` | `20-222222` |
-| `X-IngramMicro-Country-Code` | string | 是 | 无 | 无 | 两位 ISO 国家代码（对应上游 `IM-CountryCode`） | `US` |
+| `X-IngramMicro-Client-Id` | string | Yes | None | None | Client ID for OAuth2 client_credentials | `abc123...` |
+| `X-IngramMicro-Client-Secret` | string | Yes | None | None | Client Secret for OAuth2 client_credentials | `xyz789...` |
+| `X-IngramMicro-Customer-Number` | string | Yes | None | None | Ingram Micro reseller account number (maps to upstream `IM-CustomerNumber`), e.g. `20-222222` | `20-222222` |
+| `X-IngramMicro-Country-Code` | string | Yes | None | None | Two-letter ISO country code (maps to upstream `IM-CountryCode`) | `US` |
 
 Missing any of the four required headers returns `401 Unauthorized`.
 
@@ -189,75 +189,75 @@ reseller's Ingram Micro net-terms account — **Ingram Micro does not
 support credit-card API ordering**, only net-terms trade credit, so a
 mistaken order is a real invoice, not a rejected charge.
 
-### Catalog（对应官方MCP：Product Info & Pricing）
+### Catalog (corresponds to the official MCP: Product Info & Pricing)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_products` | 按关键词/厂商/分类搜索产品目录 | GET /resellers/v6/catalog |
-| `ingrammicro_get_product_detail` | 按Ingram Part Number查产品详情 | GET /resellers/v6/catalog/details/{ingramPartNumber} |
-| `ingrammicro_get_product_detail_by_reference` | 按厂商料号/订阅计划id或名查产品详情 | GET /resellers/v6/catalog/details |
-| `ingrammicro_get_price_and_availability` | 查实时价格与库存 | POST /resellers/v6/catalog/priceandavailability |
+| `ingrammicro_search_products` | Search the product catalog by keyword/vendor/category | GET /resellers/v6/catalog |
+| `ingrammicro_get_product_detail` | Get product details by Ingram Part Number | GET /resellers/v6/catalog/details/{ingramPartNumber} |
+| `ingrammicro_get_product_detail_by_reference` | Get product details by vendor part number / subscription plan id or name | GET /resellers/v6/catalog/details |
+| `ingrammicro_get_price_and_availability` | Get real-time price and stock | POST /resellers/v6/catalog/priceandavailability |
 
-### Quotes（对应官方MCP：Quotes）
+### Quotes (corresponds to the official MCP: Quotes)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_quotes` | 搜索报价单 | GET /resellers/v6/quotes/search |
-| `ingrammicro_get_quote` | 查报价单详情 | GET /resellers/v6/quotes/{quoteNumber} |
-| `ingrammicro_create_quote` | 创建报价单（占价，不是下单） | POST /resellers/v6/quotes/create |
-| `ingrammicro_validate_quote_to_order` | 转单前校验报价，返回必填字段 | GET /resellers/v6/q2o/validatequote |
+| `ingrammicro_search_quotes` | Search quotes | GET /resellers/v6/quotes/search |
+| `ingrammicro_get_quote` | Get quote details | GET /resellers/v6/quotes/{quoteNumber} |
+| `ingrammicro_create_quote` | Create a quote (reserves the price, does not place an order) | POST /resellers/v6/quotes/create |
+| `ingrammicro_validate_quote_to_order` | Validate a quote before converting it to an order, returns required fields | GET /resellers/v6/q2o/validatequote |
 
-### Orders（对应官方MCP：Orders，但官方只读；下单/改单/取消是官方没有的能力）
+### Orders (corresponds to the official MCP: Orders, but the official one is read-only; placing/modifying/cancelling orders are capabilities the official one does not have)
 
-| Tool | 功能 | 方法+路径 | 主要参数 |
+| Tool | Description | Method + Path | Main parameters |
 |---|---|---|---|
-| `ingrammicro_create_order` | 下单：库存/直发/授权/保修类SKU | POST /resellers/v6/orders | `customer_order_number`(必填), `lines`(必填), `ship_to_info`, `end_user_info`, `reseller_info`, `shipment_details`, `vendor_auth_number`(保修单必填) |
-| `ingrammicro_create_cloud_order` | 下单：云订阅 / Quote-to-Order / Configure-to-Order（异步，结果通过webhook推送，不在本次响应里） | POST /resellers/v7/orders | `quote_number` 或 `lines` 二选一(必须给一个) |
-| `ingrammicro_modify_order` | 改单：仅限带customer-hold标记、下单后24小时内的订单 | PUT /resellers/v6/orders/{orderNumber} | `order_number`(必填), `action_code`(如"release"), `lines`(ADD/UPDATE/DELETE) |
-| `ingrammicro_cancel_order` | 取消订单：仅限尚未放行到仓库前 | DELETE /resellers/v6/orders/{OrderNumber} | `order_number`(必填) |
-| `ingrammicro_get_order` | 查单个订单详情/物流状态 | GET /resellers/v6.1/orders/{ordernumber} |
-| `ingrammicro_search_orders` | 按PO号/状态/产品搜索订单 | GET /resellers/v6/orders/search |
+| `ingrammicro_create_order` | Place an order: stock / direct-ship / licensing / warranty SKUs | POST /resellers/v6/orders | `customer_order_number` (required), `lines` (required), `ship_to_info`, `end_user_info`, `reseller_info`, `shipment_details`, `vendor_auth_number` (required for warranty orders) |
+| `ingrammicro_create_cloud_order` | Place an order: cloud subscription / Quote-to-Order / Configure-to-Order (asynchronous, the result is pushed via webhook and is not in this response) | POST /resellers/v7/orders | exactly one of `quote_number` or `lines` (one must be given) |
+| `ingrammicro_modify_order` | Modify an order: only orders with the customer-hold flag, within 24 hours after placing | PUT /resellers/v6/orders/{orderNumber} | `order_number` (required), `action_code` (e.g. "release"), `lines` (ADD/UPDATE/DELETE) |
+| `ingrammicro_cancel_order` | Cancel an order: only before it has been released to the warehouse | DELETE /resellers/v6/orders/{OrderNumber} | `order_number` (required) |
+| `ingrammicro_get_order` | Get details / shipping status of a single order | GET /resellers/v6.1/orders/{ordernumber} |
+| `ingrammicro_search_orders` | Search orders by PO number / status / product | GET /resellers/v6/orders/search |
 
-### Invoices（对应官方MCP：Invoices）
+### Invoices (corresponds to the official MCP: Invoices)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_invoices` | 搜索发票 | GET /resellers/v6/invoices |
-| `ingrammicro_get_invoice` | 查发票详情 | GET /resellers/v6.1/invoices/{invoiceNumber} |
+| `ingrammicro_search_invoices` | Search invoices | GET /resellers/v6/invoices |
+| `ingrammicro_get_invoice` | Get invoice details | GET /resellers/v6.1/invoices/{invoiceNumber} |
 
-### Renewals（对应官方MCP：Subscriptions/Renewals）
+### Renewals (corresponds to the official MCP: Subscriptions/Renewals)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_renewals` | 搜索续订机会 | POST /resellers/v6/renewals/search |
-| `ingrammicro_get_renewal` | 查续订详情 | GET /resellers/v6/renewals/{renewalId} |
+| `ingrammicro_search_renewals` | Search renewal opportunities | POST /resellers/v6/renewals/search |
+| `ingrammicro_get_renewal` | Get renewal details | GET /resellers/v6/renewals/{renewalId} |
 
-### Deals（特价/Special Bid，官方MCP未单独列出，但同属查询类能力）
+### Deals (special pricing / Special Bid; not listed separately in the official MCP, but also a query-type capability)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_deals` | 搜索特价/Special Bid | GET /resellers/v6/deals/search |
-| `ingrammicro_get_deal` | 查特价详情 | GET /resellers/v6/deals/{dealId} |
+| `ingrammicro_search_deals` | Search special pricing / Special Bid | GET /resellers/v6/deals/search |
+| `ingrammicro_get_deal` | Get deal details | GET /resellers/v6/deals/{dealId} |
 
-### Returns（对应官方MCP：Returns）
+### Returns (corresponds to the official MCP: Returns)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_search_returns` | 搜索退货(RMA)申请 | GET /resellers/v6/returns/search |
-| `ingrammicro_get_return` | 查退货详情 | GET /resellers/v6/returns/{caseRequestNumber} |
-| `ingrammicro_create_return` | 提交退货申请 | POST /resellers/v6/returns/create |
+| `ingrammicro_search_returns` | Search return (RMA) requests | GET /resellers/v6/returns/search |
+| `ingrammicro_get_return` | Get return details | GET /resellers/v6/returns/{caseRequestNumber} |
+| `ingrammicro_create_return` | Submit a return request | POST /resellers/v6/returns/create |
 
-### Freight（对应官方MCP：Freight & Shipping）
+### Freight (corresponds to the official MCP: Freight & Shipping)
 
-| Tool | 功能 | 方法+路径 |
+| Tool | Description | Method + Path |
 |---|---|---|
-| `ingrammicro_get_freight_estimate` | 运费预估 | POST /resellers/v6/freightestimate |
+| `ingrammicro_get_freight_estimate` | Freight estimate | POST /resellers/v6/freightestimate |
 
-复杂嵌套参数（`lines`/`ship_to_info`/`end_user_info`/`reseller_info`/`shipment_details`/`additional_attributes`/`products`/`returns`等）以 `dict`/`list[dict]` 形式传入，具体字段见每个工具自己的参数说明（已对照官方 OpenAPI spec 核实字段名）。
+Complex nested parameters (`lines`/`ship_to_info`/`end_user_info`/`reseller_info`/`shipment_details`/`additional_attributes`/`products`/`returns`, etc.) are passed as `dict`/`list[dict]`; see each tool's own parameter description for the exact fields (field names have been verified against the official OpenAPI spec).
 
-`ingrammicro_search_quotes`/`ingrammicro_create_quote`/`ingrammicro_get_freight_estimate` 额外要求一个 `requester_email` 参数（对应上游 `IM-CustomerContact`/`CustomerContact`：发起请求的登录用户邮箱）——这是调用方个人身份信息，不是租户级凭据，所以做成工具参数而不是网关 Header。
+`ingrammicro_search_quotes`/`ingrammicro_create_quote`/`ingrammicro_get_freight_estimate` additionally require a `requester_email` parameter (maps to upstream `IM-CustomerContact`/`CustomerContact`: the email of the logged-in user making the request) - this is the caller's personal identity information, not a tenant-level credential, so it is a tool parameter rather than a gateway Header.
 
-## 测试示例
+## Test Example
 
 ```bash
 curl -X POST http://localhost:8080/mcp \
@@ -278,7 +278,7 @@ curl -X POST http://localhost:8080/mcp \
   }'
 ```
 
-> ⚠️ 本仓库为公开仓库，请勿在任何提交的文件中写入真实的 client_id/client_secret/customer_number 等敏感信息。
+> ⚠️ This is a public repository; do not write sensitive information such as real client_id/client_secret/customer_number into any committed file.
 
 ## API Reference
 
