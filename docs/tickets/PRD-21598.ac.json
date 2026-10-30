@@ -1,0 +1,88 @@
+[
+  {
+    "id": "TC1",
+    "ac": "AC1",
+    "text": "Given a subscription id, a product mpn, and a new total quantity higher than the account's current quantity, When ingrammicro_cloud_create_change_order is called, Then it submits POST /orders with type=change and returns the upstream acknowledgement (id, type=change, status) unchanged",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_change_order_add_seats_returns_upstream_ack"]
+  },
+  {
+    "id": "TC2",
+    "ac": "AC2",
+    "text": "Given the same account and subscription, When called with a new total quantity lower than the current quantity, Then the request and response follow the identical code path as TC1 -- there is no separate purchase/remove mode or parameter",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_change_order_remove_seats_uses_same_code_path"]
+  },
+  {
+    "id": "TC3",
+    "ac": "AC3",
+    "text": "Given subscription_id is missing, or products is missing, or a products item is missing mpn/quantity, or quantity is negative, When the tool is called, Then it returns an invalid_argument error envelope and makes no HTTP call",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_missing_subscription_id_is_invalid_argument",
+      "tests/test_cloud_tools.py::test_missing_products_is_invalid_argument",
+      "tests/test_cloud_tools.py::test_product_missing_mpn_or_quantity_is_invalid_argument",
+      "tests/test_cloud_tools.py::test_negative_quantity_is_invalid_argument"
+    ]
+  },
+  {
+    "id": "TC4",
+    "ac": "AC4",
+    "text": "Given the IM Cloud API acknowledges the change order (status submitted/processing/draft), When the tool returns, Then the response is exactly that acknowledgement -- no code path polls or waits for a completed/error result, and the docstring states the result is asynchronous",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_response_is_passthrough_ack_not_final_result"]
+  },
+  {
+    "id": "TC5",
+    "ac": "AC5",
+    "text": "Given the Cloud credential headers (X-IngramMicroCloud-Api-Key, X-IngramMicroCloud-Customer-Id) are missing, When the tool is called, Then the response is the not_configured error envelope naming the missing headers and no upstream HTTP call is made",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_missing_cloud_credentials_returns_not_configured_without_http_call"]
+  },
+  {
+    "id": "TC6",
+    "ac": "AC6",
+    "text": "Given Ingram's IM Cloud API returns an error, When the tool is called, Then the response is a structured error envelope with code/message/retryable -- retryable=true for 429/5xx/network failure, retryable=false for 400/401/404 -- never an unhandled exception",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_upstream_5xx_returns_retryable_error_envelope",
+      "tests/test_cloud_tools.py::test_upstream_404_returns_non_retryable_error_envelope"
+    ],
+    "notes": "mocked upstream response; exact real-world error body shape needs a real vendor account to confirm (see TC9)"
+  },
+  {
+    "id": "TC7",
+    "ac": "AC7",
+    "text": "Given two different tenants each with their own Ingram Micro Cloud account, When one tenant's agent calls this tool, Then customerId always comes from that tenant's own gateway credential header, never from a tool-call argument -- the tool signature has no customer_id/customerId parameter at all",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_tool_signature_has_no_customer_id_parameter",
+      "tests/test_cloud_tools.py::test_client_always_sources_customer_id_from_constructor_not_call_args"
+    ]
+  },
+  {
+    "id": "TC8",
+    "ac": "AC8",
+    "text": "Given a products item includes an offer_attestation entry in parameters, When the tool is called, Then it is passed through verbatim into that product's line in the request body; given a products item with no parameters, Then the request has no parameters key for that line",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_offer_attestation_parameters_passthrough_when_given",
+      "tests/test_cloud_tools.py::test_no_parameters_key_when_omitted"
+    ]
+  },
+  {
+    "id": "TC9",
+    "ac": "AC1",
+    "text": "Given a real Ingram Micro Cloud Marketplace account with a known subscription, When the live tool is called end-to-end to change that subscription's product quantity, Then the real base URL, whether billingPeriod/subscriptionPeriod are required, and the real response/status progression all match what this design assumed",
+    "type": "manual",
+    "steps": [
+      "Obtain a real Ingram Micro Cloud Marketplace account and a subscription id with a known product/quantity",
+      "Configure INGRAMMICRO_CLOUD_BASE_URL and the two Cloud credential headers against the confirmed Ingram-hosted API doc (developer.ingrammicro.com Cloud Marketplace API PDF, or apidocs.cloud.im)",
+      "Call ingrammicro_cloud_create_change_order with that subscription's id, the product mpn, and a new total quantity one higher than current",
+      "Observe the immediate response, then separately confirm (outside this tool, e.g. in Ingram's own portal) whether the change eventually completed"
+    ],
+    "expect": "The immediate response matches the documented acknowledgement shape (id, type=change, status); the eventual completion is visible in Ingram's portal, confirming the async/webhook assumption in AC4",
+    "result": "blocked",
+    "evidence": "needs a real Ingram Micro Cloud Marketplace account -- not available in this design/dev pass; does not block shipping per the vendor-mcp 'no test account is not a blocker' rule (mcp-track.md section 3)"
+  }
+]
