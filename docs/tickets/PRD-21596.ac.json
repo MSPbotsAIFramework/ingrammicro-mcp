@@ -1,0 +1,86 @@
+[
+  {
+    "id": "TC-IMC-001",
+    "ac": "AC1",
+    "type": "auto",
+    "text": "Given a mocked 200 response from GET /subscriptions/{id}, when ingrammicro_cloud_get_subscription(subscription_id) is called, then the returned JSON contains id, name, planId, status, products[] (mpn/name/quantity/unitPrice/currency), billingPeriod{type,duration}, subscriptionPeriod{type,duration}, renewalDate, customerId.",
+    "tests": ["tests/test_cloud_client.py::test_get_subscription_returns_full_schema"]
+  },
+  {
+    "id": "TC-IMC-002",
+    "ac": "AC1",
+    "type": "auto",
+    "text": "ingrammicro_cloud_get_subscription appears in tools/list with subscription_id as its one required parameter and readOnlyHint+idempotentHint annotations.",
+    "tests": ["tests/test_tools.py::test_tools_list_snapshot"]
+  },
+  {
+    "id": "TC-IMC-003",
+    "ac": "AC2",
+    "type": "auto",
+    "text": "Given no Cloud Marketplace headers are set, when the tool is called, then it returns a structured not_configured error instead of raising or hanging.",
+    "tests": ["tests/test_cloud_client.py::test_tool_returns_not_configured_without_cloud_credentials"]
+  },
+  {
+    "id": "TC-IMC-004",
+    "ac": "AC5",
+    "type": "auto",
+    "text": "Given a /mcp request carries only the four existing Reseller headers and none of the new Cloud headers, when an existing tool (e.g. ingrammicro_search_products) is called, then the request still succeeds exactly as before this ticket -- the middleware's mandatory-header check is unchanged.",
+    "tests": ["tests/test_middleware.py::test_cloud_headers_are_optional_existing_flow_unaffected"]
+  },
+  {
+    "id": "TC-IMC-005",
+    "ac": "AC3",
+    "type": "auto",
+    "text": "Given the Cloud Marketplace API returns 404 for the given subscription id, when the tool is called, then it returns {\"error\": {\"code\": \"not_found\", \"retryable\": false}}.",
+    "tests": ["tests/test_cloud_client.py::test_get_subscription_not_found_maps_to_structured_error"]
+  },
+  {
+    "id": "TC-IMC-006a",
+    "ac": "AC4",
+    "type": "auto",
+    "text": "Given the Cloud Marketplace API returns 429 once then 200, when the tool is called, then the retry succeeds and the 200 payload is returned.",
+    "tests": ["tests/test_cloud_client.py::test_get_subscription_retries_on_429_then_succeeds"]
+  },
+  {
+    "id": "TC-IMC-006b",
+    "ac": "AC4",
+    "type": "auto",
+    "text": "Given the Cloud Marketplace API returns 429 on every attempt, when the tool is called, then after the same retry budget as the Reseller client it returns {\"error\": {\"code\": \"rate_limited\", \"retryable\": true}}.",
+    "tests": ["tests/test_cloud_client.py::test_get_subscription_rate_limited_after_retries_exhausted"]
+  },
+  {
+    "id": "TC-IMC-007",
+    "ac": "AC6",
+    "type": "auto",
+    "text": "Given two concurrent requests with different Cloud Marketplace credentials, when both call the tool, then each request's upstream call uses only its own credentials and the contextvar is empty again after both complete (no cross-request leakage).",
+    "tests": ["tests/test_middleware.py::test_cloud_creds_do_not_leak_across_concurrent_requests"]
+  },
+  {
+    "id": "TC-IMC-008",
+    "ac": "AC7",
+    "type": "auto",
+    "text": "Given a caller sends X-IngramMicroCloud-Base-Url overriding the default, when the tool is called, then the HTTP request goes to the overridden host, not the default api.cloud.im host.",
+    "tests": ["tests/test_cloud_client.py::test_cloud_client_uses_configured_base_url"]
+  },
+  {
+    "id": "TC-IMC-009",
+    "ac": "AC1",
+    "type": "auto",
+    "text": "Given a mocked response missing an optional field (e.g. renewalDate: null), when the tool is called, then it still returns the payload without raising.",
+    "tests": ["tests/test_cloud_client.py::test_get_subscription_handles_missing_optional_fields"]
+  },
+  {
+    "id": "TC-IMC-010",
+    "ac": "AC1",
+    "type": "manual",
+    "text": "One real call against a live Ingram Micro Cloud Marketplace account confirms the assumed access_token field name and the exact response field names/nesting match what was inferred from public docs.",
+    "steps": [
+      "Obtain real Cloud Marketplace credentials for any tenant with Cloud Marketplace access (Ginko IT or otherwise)",
+      "Set the five X-IngramMicroCloud-* headers with those credentials",
+      "Call ingrammicro_cloud_get_subscription with a real subscription id from that account"
+    ],
+    "expect": "Response contains the same field names/nesting documented in PRD-21596.md Data & API contract; the token exchange succeeds (no parse error on the token response).",
+    "result": "untested",
+    "notes": "No real Ingram Micro Cloud Marketplace account is available to DEV01. Per the MCP SOP, the lack of a test account does not block this ticket (not a dev/review blocker); this case stays untested until someone with real credentials runs it."
+  }
+]
