@@ -1,0 +1,72 @@
+[
+  {
+    "id": "TC1",
+    "ac": "AC1",
+    "text": "Given valid Cloud Marketplace credentials and a customerId with active subscriptions, When ingrammicro_cloud_list_subscriptions is called with status=\"active\", Then the response is a JSON list where every item has id, status=\"active\", customerId, renewalDate, totalPrice, and products[] (mpn, quantity, unitPrice)",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_active_filter_returns_expected_fields"]
+  },
+  {
+    "id": "TC2",
+    "ac": "AC2",
+    "text": "Given the same account, When ingrammicro_cloud_list_subscriptions is called with no status filter, Then subscriptions of any status are returned and the tool does not add a default status filter of its own",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_no_status_filter_is_not_defaulted"]
+  },
+  {
+    "id": "TC3",
+    "ac": "AC3",
+    "text": "Given a customerId with zero subscriptions, When the tool is called, Then the response is an empty list, not an error",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_empty_result_is_not_an_error"]
+  },
+  {
+    "id": "TC4",
+    "ac": "AC4",
+    "text": "Given creationDateFrom/creationDateTo are supplied, When the tool is called, Then both are passed through as query params on the upstream GET /subscriptions call",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_passes_creation_date_range_params"]
+  },
+  {
+    "id": "TC5",
+    "ac": "AC5",
+    "text": "Given the Cloud credential headers (X-IngramMicroCloud-Api-Key, X-IngramMicroCloud-Customer-Id) are missing, When the tool is called, Then the response is the not_configured error envelope naming the missing headers and no upstream HTTP call is made",
+    "type": "auto",
+    "tests": ["tests/test_cloud_tools.py::test_missing_cloud_credentials_returns_not_configured_without_http_call"]
+  },
+  {
+    "id": "TC6",
+    "ac": "AC6",
+    "text": "Given Ingram's Cloud Marketplace API returns an error, When the tool is called, Then the response is a structured error envelope with code/message/retryable -- retryable=true for 429/5xx/network failure, retryable=false for 400/401/404 -- never an unhandled exception",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_upstream_5xx_returns_retryable_error_envelope",
+      "tests/test_cloud_tools.py::test_upstream_404_returns_non_retryable_error_envelope"
+    ],
+    "notes": "mocked upstream response; exact real-world error body shape needs a real vendor account to confirm (see TC8)"
+  },
+  {
+    "id": "TC7",
+    "ac": "AC7",
+    "text": "Given two different tenants each with their own Ingram Micro Cloud account, When one tenant's agent calls this tool, Then customerId always comes from that tenant's own gateway credential header, never from a tool-call argument -- the tool signature has no customer_id/customerId parameter at all",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_tools.py::test_tool_signature_has_no_customer_id_parameter",
+      "tests/test_cloud_tools.py::test_client_always_sources_customer_id_from_constructor_not_call_args"
+    ]
+  },
+  {
+    "id": "TC8",
+    "ac": "AC1",
+    "text": "Given a real Ingram Micro Cloud Marketplace account with known subscriptions, When the live tool is called end-to-end, Then the real response includes name/planId as the ticket expects, and the real base URL / auth exchange matches what this design assumed",
+    "type": "manual",
+    "steps": [
+      "Obtain a real Ingram Micro Cloud Marketplace account and customerId with at least one known subscription",
+      "Configure INGRAMMICRO_CLOUD_BASE_URL and the two Cloud credential headers against the confirmed Ingram-hosted API doc (developer.ingrammicro.com Cloud Marketplace API PDF, or apidocs.cloud.im)",
+      "Call ingrammicro_cloud_list_subscriptions with that customer's credentials, status unset"
+    ],
+    "expect": "Response includes the known subscription(s) with id, name, planId, status, customerId, products[], renewalDate, totalPrice matching what is visible in Ingram's own portal for that account",
+    "result": "blocked",
+    "evidence": "needs a real Ingram Micro Cloud Marketplace account -- not available in this design/dev pass; does not block shipping per the vendor-mcp 'no test account is not a blocker' rule (mcp-track.md section 3)"
+  }
+]
