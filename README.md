@@ -140,8 +140,10 @@ cached** — every tool call re-authenticates from scratch (same pattern as
 | `X-IngramMicro-Client-Secret` | string | Yes | None | None | Client Secret for OAuth2 client_credentials | `xyz789...` |
 | `X-IngramMicro-Customer-Number` | string | Yes | None | None | Ingram Micro reseller account number (maps to upstream `IM-CustomerNumber`), e.g. `20-222222` | `20-222222` |
 | `X-IngramMicro-Country-Code` | string | Yes | None | None | Two-letter ISO country code (maps to upstream `IM-CountryCode`) | `US` |
+| `X-IngramMicroCloud-Api-Key` | string | No | None | None | API key for the separate IM Cloud / CloudBlue Marketplace API — only needed to call `ingrammicro_cloud_list_subscriptions` | `ck_abc123...` |
+| `X-IngramMicroCloud-Customer-Id` | string | No | None | None | Customer id in the IM Cloud Marketplace (not the same id space as `X-IngramMicro-Customer-Number` above) | `cust-42` |
 
-Missing any of the four required headers returns `401 Unauthorized`.
+Missing any of the four Resellers headers returns `401 Unauthorized`. The two `X-IngramMicroCloud-*` headers are independent of those four: a caller that never sends them still gets full access to every other tool in this server — only `ingrammicro_cloud_list_subscriptions` itself returns a `not_configured` error envelope when they're absent.
 
 ## Quick Start
 
@@ -180,11 +182,14 @@ No credentials are required for the health endpoint.
 | `INGRAMMICRO_CLIENT_ID` / `_CLIENT_SECRET` / `_CUSTOMER_NUMBER` / `_COUNTRY_CODE` | — | Only used in `env` mode |
 | `INGRAMMICRO_SENDER_ID` | `MSPbots` | `IM-SenderID` value sent on every call |
 | `INGRAMMICRO_BASE_URL` | `https://api.ingrammicro.com` | Override for sandbox testing (see Known Gaps — the exact sandbox URL is unverified) |
+| `INGRAMMICRO_CLOUD_API_KEY` / `_CLOUD_CUSTOMER_ID` | — | Only used in `env` mode, for `ingrammicro_cloud_list_subscriptions` |
+| `INGRAMMICRO_CLOUD_BASE_URL` | — (no default) | IM Cloud / CloudBlue Marketplace API host — no hardcoded default since the exact host is unverified (see Known Gaps); the tool returns `not_configured` until this is set |
 
 ## Tool List
 
-24 tools, covering every non-webhook endpoint in Ingram Micro's Resellers
-API. Every order-placing/modifying tool spends real money against the
+25 tools: 24 covering every non-webhook endpoint in Ingram Micro's
+Resellers API, plus 1 for the separate IM Cloud Marketplace API (see
+below). Every order-placing/modifying tool spends real money against the
 reseller's Ingram Micro net-terms account — **Ingram Micro does not
 support credit-card API ordering**, only net-terms trade credit, so a
 mistaken order is a real invoice, not a rejected charge.
@@ -252,6 +257,17 @@ mistaken order is a real invoice, not a rejected charge.
 | Tool | Description | Method + Path |
 |---|---|---|
 | `ingrammicro_get_freight_estimate` | Freight estimate | POST /resellers/v6/freightestimate |
+
+### Cloud Marketplace (new — IM Cloud API, distinct from the Resellers API above)
+
+A separate Ingram Micro product (Cloud Marketplace subscriptions, e.g.
+Microsoft 365 plans) with its own API, auth, and credential headers — see
+HEADER Authorization Parameters above. Does not require the four
+Resellers headers.
+
+| Tool | Description | Method + Path |
+|---|---|---|
+| `ingrammicro_cloud_list_subscriptions` | List this customer's Cloud Marketplace subscriptions (filterable by status, creation-date range) — use to find the subscription to add/remove seats on | GET /subscriptions |
 
 Complex nested parameters (`lines`/`ship_to_info`/`end_user_info`/`reseller_info`/`shipment_details`/`additional_attributes`/`products`/`returns`, etc.) are passed as `dict`/`list[dict]`; see each tool's own parameter description for the exact fields (field names have been verified against the official OpenAPI spec).
 
@@ -328,3 +344,16 @@ curl -X POST http://localhost:8080/mcp \
   (verified against the spec, field names are accurate), but modeling
   every one as a typed parameter was out of scope. Field names/shapes are
   documented in each parameter's own description.
+- **IM Cloud Marketplace API (`ingrammicro_cloud_list_subscriptions`) base
+  URL and auth exchange are unverified against Ingram's own deployment.**
+  This tool was built against the independently-verified CloudBlue "Simple
+  API" contract (Ingram's Xvantage Cloud Marketplace is built on CloudBlue
+  Connect), since Ingram's own two hosted copies of this spec
+  (`developer.ingrammicro.com`'s Cloud Marketplace API PDF and
+  `apidocs.cloud.im`) could not be reached from the environment this tool
+  was built in. `INGRAMMICRO_CLOUD_BASE_URL` has no hardcoded default
+  specifically so this can be set once confirmed, same pattern as the
+  Resellers sandbox-URL gap above. Whether Ingram's deployment needs an
+  OAuth2 token exchange instead of the documented direct API key is
+  likewise unconfirmed — only `cloud_api_client.py`'s internals would need
+  to change, not the tool's parameters or any other file.

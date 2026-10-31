@@ -4,35 +4,45 @@
     "ac": "AC1",
     "text": "Given valid Cloud Marketplace credentials and a customerId with active subscriptions, When ingrammicro_cloud_list_subscriptions is called with status=\"active\", Then the response is a JSON list where every item has id, status=\"active\", customerId, renewalDate, totalPrice, and products[] (mpn, quantity, unitPrice)",
     "type": "auto",
-    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_active_filter_returns_expected_fields"]
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_active_filter_returns_expected_fields"],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_list_subscriptions_active_filter_returns_expected_fields -v -> PASSED (see docs/tickets/PRD-21595.md Self-test section for the exact commit sha)"
   },
   {
     "id": "TC2",
     "ac": "AC2",
     "text": "Given the same account, When ingrammicro_cloud_list_subscriptions is called with no status filter, Then subscriptions of any status are returned and the tool does not add a default status filter of its own",
     "type": "auto",
-    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_no_status_filter_is_not_defaulted"]
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_no_status_filter_is_not_defaulted"],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_list_subscriptions_no_status_filter_is_not_defaulted -v -> PASSED"
   },
   {
     "id": "TC3",
     "ac": "AC3",
     "text": "Given a customerId with zero subscriptions, When the tool is called, Then the response is an empty list, not an error",
     "type": "auto",
-    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_empty_result_is_not_an_error"]
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_empty_result_is_not_an_error"],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_list_subscriptions_empty_result_is_not_an_error -v -> PASSED"
   },
   {
     "id": "TC4",
     "ac": "AC4",
     "text": "Given creationDateFrom/creationDateTo are supplied, When the tool is called, Then both are passed through as query params on the upstream GET /subscriptions call",
     "type": "auto",
-    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_passes_creation_date_range_params"]
+    "tests": ["tests/test_cloud_tools.py::test_list_subscriptions_passes_creation_date_range_params"],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_list_subscriptions_passes_creation_date_range_params -v -> PASSED"
   },
   {
     "id": "TC5",
     "ac": "AC5",
     "text": "Given the Cloud credential headers (X-IngramMicroCloud-Api-Key, X-IngramMicroCloud-Customer-Id) are missing, When the tool is called, Then the response is the not_configured error envelope naming the missing headers and no upstream HTTP call is made",
     "type": "auto",
-    "tests": ["tests/test_cloud_tools.py::test_missing_cloud_credentials_returns_not_configured_without_http_call"]
+    "tests": ["tests/test_cloud_tools.py::test_missing_cloud_credentials_returns_not_configured_without_http_call"],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_missing_cloud_credentials_returns_not_configured_without_http_call -v -> PASSED. Also confirmed end-to-end: local server with no X-IngramMicroCloud-* headers, POST /mcp tools/call ingrammicro_cloud_list_subscriptions -> {\"error\":{\"code\":\"not_configured\",\"message\":\"No Ingram Micro Cloud Marketplace credentials. Send the X-IngramMicroCloud-Api-Key and X-IngramMicroCloud-Customer-Id headers.\",\"retryable\":false}}"
   },
   {
     "id": "TC6",
@@ -43,7 +53,9 @@
       "tests/test_cloud_tools.py::test_upstream_5xx_returns_retryable_error_envelope",
       "tests/test_cloud_tools.py::test_upstream_404_returns_non_retryable_error_envelope"
     ],
-    "notes": "mocked upstream response; exact real-world error body shape needs a real vendor account to confirm (see TC8)"
+    "notes": "mocked upstream response; exact real-world error body shape needs a real vendor account to confirm (see TC8)",
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_upstream_5xx_returns_retryable_error_envelope tests/test_cloud_tools.py::test_upstream_404_returns_non_retryable_error_envelope -v -> both PASSED"
   },
   {
     "id": "TC7",
@@ -53,7 +65,9 @@
     "tests": [
       "tests/test_cloud_tools.py::test_tool_signature_has_no_customer_id_parameter",
       "tests/test_cloud_tools.py::test_client_always_sources_customer_id_from_constructor_not_call_args"
-    ]
+    ],
+    "result": "pass",
+    "evidence": "uv run pytest tests/test_cloud_tools.py::test_tool_signature_has_no_customer_id_parameter tests/test_cloud_tools.py::test_client_always_sources_customer_id_from_constructor_not_call_args -v -> both PASSED. Also confirmed via real tools/list call on local server: ingrammicro_cloud_list_subscriptions inputSchema properties = {status, creation_date_from, creation_date_to} only."
   },
   {
     "id": "TC8",
