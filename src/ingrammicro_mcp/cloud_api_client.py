@@ -1,25 +1,63 @@
-"""Client for Ingram Micro's IM Cloud / CloudBlue Marketplace API — a
-separate product from the Ingram Micro Resellers API that api_client.py
-wraps. Added for PRD-21595 (gap: list a customer's Cloud Marketplace
-subscriptions, to find the M365-type subscription to add/remove seats on).
+"""Clients for Ingram Micro's IM Cloud / CloudBlue Marketplace product
+line — separate from the Ingram Micro Resellers API that api_client.py
+wraps, and (see below) internally split into two further sub-APIs with
+two different, verified-separately auth schemes.
 
-Built against the independently-verified CloudBlue "Simple API" contract
+CloudMarketplaceClient (PRD-21595, subscriptions): built against the
+independently-verified CloudBlue "Simple API" contract
 (docs.cloudblue.com/cbc/21.0/Simple-API/how-to-use/howto/subscriptions/),
 since Ingram's own two hosted copies of this spec
 (developer.ingrammicro.com's Cloud Marketplace API PDF and
-apidocs.cloud.im) could not be reached from this environment at design
-time (see docs/tickets/PRD-21595.md, Risks). The exact base URL and
-whether Ingram's own deployment needs an OAuth2 exchange instead of a
-direct API key (Q1/Q2 in that doc) are confirmed by whoever has network
-access to those two hosts or a real account — only this file's internals
-(_login/base URL/header names) would need to change, not the tool
-signature in tools/cloud.py.
+apidocs.cloud.im) could not be reached from that session's environment at
+design time (see docs/tickets/PRD-21595.md, Risks: ECONNRESET/timeout on
+both hosts). Direct `Authorization: Bearer {api_key}`, no token-exchange
+step, re-verify against a real account or the PDF below before relying on
+this for a new capability — see CloudMarketplaceProductsClient's docstring
+for what that PDF actually says once it *is* reachable.
+
+CloudMarketplaceProductsClient (PRD-21597, products): built against
+Ingram Micro's own "Cloud Marketplace API.pdf"
+(developer.ingrammicro.com/sites/default/files/2025-11/Cloud%20Marketplace%20API.pdf),
+which this session fetched directly (HTTP 200, 103 pages) on 2026-10-31 —
+apidocs.cloud.im itself still ECONNRESETs from this environment, same as
+it did for PRD-21595, but Ingram's own PDF mirror of the same spec does
+not. That PDF's own "Token Generation" / "Testing the Bearer Token"
+sections (pp. 5-7) show Basic-auth `POST {base}/token` with a JSON body,
+an `X-Subscription-Key` header sent on *every* call (including `/token`
+itself), and a short-lived Bearer token returned from `/token` — not the
+direct-API-key-as-Bearer-token shape CloudMarketplaceClient assumes above.
+Kept as a second class rather than folded into CloudMarketplaceClient:
+the two have entirely different credential material (client id/secret/
+subscription key vs. a single api key) and now-confirmed-different auth
+flows, the same "one client class per distinct auth scheme" split this
+repo already uses between IngramMicroClient (Resellers) and
+CloudMarketplaceClient (Cloud). See docs/tickets/PRD-21597.md, Tech
+design, for the full rationale and the flagged follow-up (CloudMarketplace-
+Client's own auth assumption is now suspect given this PDF — not fixed
+here, out of this ticket's scope; see that doc's Reuse & cleanup section).
 """
 
+import base64
 from typing import Any
 
 from ._http import _request_with_retry, _RequestFailed
 from .api_client import IngramMicroError
+
+
+def _error_message(resp: Any) -> str:
+    """Shared error-detail extraction for both Cloud Marketplace clients
+    below (identical response shape assumptions: a JSON body with a
+    "message" or "error" key, or plain text). Extracted so
+    CloudMarketplaceProductsClient does not duplicate
+    CloudMarketplaceClient's inline version of this logic.
+    """
+    try:
+        detail = resp.json()
+        if isinstance(detail, dict):
+            return detail.get("message") or detail.get("error") or str(detail)
+        return str(detail)
+    except ValueError:
+        return resp.text
 
 
 class CloudMarketplaceClient:
@@ -73,17 +111,122 @@ class CloudMarketplaceClient:
 
     def _handle(self, resp: Any) -> Any:
         if resp.status_code >= 400:
-            try:
-                detail = resp.json()
-                if isinstance(detail, dict):
-                    msg = detail.get("message") or detail.get("error") or str(detail)
-                else:
-                    msg = str(detail)
-            except ValueError:
-                msg = resp.text
-            raise IngramMicroError(resp.status_code, msg)
+            raise IngramMicroError(resp.status_code, _error_message(resp))
         if resp.status_code == 204 or not resp.content:
             return []
+        try:
+            return resp.json()
+        except ValueError:
+            return {"raw_response": resp.text}
+
+
+class CloudMarketplaceProductsClient:
+    """Async httpx client for the IM Cloud Marketplace "Products" object
+    (PRD-21597), verified against Ingram Micro's own "Cloud Marketplace
+    API.pdf" (see module docstring for how/when this was fetched and what
+    it says). Unlike CloudMarketplaceClient, this auth flow re-authenticates
+    on every call via an explicit Basic -> Bearer token exchange (the PDF
+    states the token is short-lived, ~1500s, and this repo's existing
+    clients already follow a no-caching, re-auth-per-call pattern for the
+    same multi-tenant-correctness reason — see IngramMicroClient._login).
+
+    No customer/tenant id is part of this API's contract at all (the
+    `/products` endpoint is a vendor-scoped catalog lookup, not scoped to a
+    reseller's own customer) — so, unlike CloudMarketplaceClient, there is
+    no fixed-at-construction tenant identifier to guard; the per-tenant
+    isolation boundary here is simply that the five credential values
+    (client id/secret/marketplace/subscription key/base url) are never
+    read from anywhere but this instance's own constructor arguments,
+    which the gateway middleware populates fresh from that one request's
+    headers (see server.py's _gateway_cloud_products_creds_var).
+    """
+
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        marketplace: str,
+        subscription_key: str,
+        base_url: str,
+    ):
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._marketplace = marketplace
+        self._subscription_key = subscription_key
+        self._base_url = base_url.rstrip("/")
+
+    async def _login(self) -> str:
+        """POST {base}/token -> short-lived Bearer access token. Per the
+        PDF (pp. 5-7): Basic-auth header (base64 client_id:client_secret),
+        X-Subscription-Key on the token call itself (not just later
+        calls), JSON body {"marketplace": "<code>"}.
+        """
+        credentials = base64.b64encode(
+            f"{self._client_id}:{self._client_secret}".encode()
+        ).decode()
+        try:
+            resp = await _request_with_retry(
+                "POST",
+                f"{self._base_url}/token",
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "X-Subscription-Key": self._subscription_key,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json_body={"marketplace": self._marketplace},
+            )
+        except _RequestFailed as e:
+            raise IngramMicroError(0, e.message) from e
+        if resp.status_code >= 400:
+            raise IngramMicroError(resp.status_code, _error_message(resp))
+        try:
+            body = resp.json()
+        except ValueError:
+            raise IngramMicroError(0, "Cloud Marketplace /token response was not JSON") from None
+        token = body.get("access_token") if isinstance(body, dict) else None
+        if not token:
+            raise IngramMicroError(
+                0, "Cloud Marketplace /token response did not include access_token"
+            )
+        return token
+
+    async def list_products(
+        self,
+        vendor: str,
+        mpn: str | None = None,
+        name: str | None = None,
+        service_name: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> Any:
+        token = await self._login()
+        params = {
+            "vendor": vendor,
+            "mpn": mpn,
+            "name": name,
+            "serviceName": service_name,
+            "limit": limit,
+            "offset": offset,
+        }
+        clean_params = {k: v for k, v in params.items() if v is not None}
+        try:
+            resp = await _request_with_retry(
+                "GET",
+                f"{self._base_url}/products",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-Subscription-Key": self._subscription_key,
+                    "Accept": "application/json",
+                },
+                params=clean_params,
+            )
+        except _RequestFailed as e:
+            raise IngramMicroError(0, e.message) from e
+        if resp.status_code >= 400:
+            raise IngramMicroError(resp.status_code, _error_message(resp))
+        if resp.status_code == 204 or not resp.content:
+            return {"products": []}
         try:
             return resp.json()
         except ValueError:

@@ -48,6 +48,8 @@ EXPECTED_TOOLS = {
     "ingrammicro_get_freight_estimate": ({"requester_email", "lines"}, _RO),
     # cloud marketplace (PRD-21595)
     "ingrammicro_cloud_list_subscriptions": (set(), _RO),
+    # cloud marketplace products (PRD-21597)
+    "ingrammicro_cloud_list_products": (set(), _RO),
 }
 
 # Tools whose docstrings deliberately exceed the SOP's 500-char description
