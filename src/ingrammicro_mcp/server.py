@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .api_client import IngramMicroClient
+from .cloud_api_client import CloudMarketplaceClient
 from .config import Settings
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -19,6 +20,15 @@ from .config import Settings
 # ─────────────────────────────────────────────────────────────────────────────
 _gateway_creds_var: contextvars.ContextVar[tuple[str, str, str, str] | None] = (
     contextvars.ContextVar("ingrammicro_gateway_creds", default=None)
+)
+
+# Same pattern, for the separate IM Cloud / CloudBlue Marketplace
+# credentials (PRD-21595). Value is (api_key, customer_id). Unlike the
+# four Resellers headers above, these are optional on the request as a
+# whole — a caller that only wants the Resellers tools should not be
+# forced to also send Cloud credentials (see GatewayTokenMiddleware).
+_gateway_cloud_creds_var: contextvars.ContextVar[tuple[str, str] | None] = (
+    contextvars.ContextVar("ingrammicro_gateway_cloud_creds", default=None)
 )
 
 
@@ -45,6 +55,26 @@ def get_client_from_context(settings: Settings) -> IngramMicroClient | None:
         settings.ingrammicro_sender_id,
         settings.ingrammicro_base_url,
     )
+
+
+def get_cloud_client_from_context(settings: Settings) -> CloudMarketplaceClient | None:
+    """Resolve the active CloudMarketplaceClient for the current request
+    context. Returns None (-> tools/cloud.py's NO_CLOUD_TOKEN) if the Cloud
+    headers/settings/base URL are not present — this is expected for any
+    caller that only uses the Resellers tools.
+    """
+    if settings.auth_mode == "gateway":
+        creds = _gateway_cloud_creds_var.get()
+        if creds is None:
+            return None
+        api_key, customer_id = creds
+    else:
+        api_key = settings.ingrammicro_cloud_api_key
+        customer_id = settings.ingrammicro_cloud_customer_id
+
+    if not api_key or not customer_id or not settings.ingrammicro_cloud_base_url:
+        return None
+    return CloudMarketplaceClient(api_key, customer_id, settings.ingrammicro_cloud_base_url)
 
 
 class GatewayTokenMiddleware:
@@ -94,6 +124,19 @@ class GatewayTokenMiddleware:
             await response(scope, receive, send)
             return
 
+        # Cloud Marketplace headers (PRD-21595) are read the same way, but
+        # are NOT required on the request as a whole: a caller using only
+        # the Resellers tools should not be forced to also send these.
+        # Missing/incomplete Cloud headers just means
+        # get_cloud_client_from_context() returns None, and
+        # ingrammicro_cloud_list_subscriptions itself returns the
+        # NO_CLOUD_TOKEN envelope (AC5) — no 401 here.
+        cloud_api_key = request.headers.get(s.ingrammicro_cloud_api_key_header.lower())
+        cloud_customer_id = request.headers.get(s.ingrammicro_cloud_customer_id_header.lower())
+        cloud_token = None
+        if cloud_api_key and cloud_customer_id:
+            cloud_token = _gateway_cloud_creds_var.set((cloud_api_key, cloud_customer_id))
+
         ctx_token = _gateway_creds_var.set(
             (client_id, client_secret, customer_number, country_code)
         )
@@ -101,6 +144,8 @@ class GatewayTokenMiddleware:
             await self.app(scope, receive, send)
         finally:
             _gateway_creds_var.reset(ctx_token)
+            if cloud_token is not None:
+                _gateway_cloud_creds_var.reset(cloud_token)
 
 
 def create_mcp_server(settings: Settings) -> FastMCP:
@@ -127,7 +172,10 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             "Ingram releases the order to its warehouse. Every order-"
             "placing/modifying call is real spend against the reseller's "
             "net-terms account — always confirm SKU, quantity, and price "
-            "with a human before calling."
+            "with a human before calling. ingrammicro_cloud_list_subscriptions "
+            "is a separate capability for a different Ingram Micro product "
+            "(the IM Cloud Marketplace, e.g. Microsoft 365 plans) — use it to "
+            "find a subscription before adding/removing seats on it."
         ),
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         stateless_http=True,
@@ -137,6 +185,9 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     client_factory: Callable[[], IngramMicroClient | None] = lambda: get_client_from_context(  # noqa: E731
         settings
     )
+    cloud_client_factory: Callable[[], CloudMarketplaceClient | None] = lambda: get_cloud_client_from_context(  # noqa: E731
+        settings
+    )
 
     if not settings.has_credentials:
         print(
@@ -144,8 +195,15 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             "not_configured errors until credentials are supplied.",
             file=sys.stderr,
         )
+    if not settings.has_cloud_credentials:
+        print(
+            "Warning: No Ingram Micro Cloud Marketplace credentials found. "
+            "ingrammicro_cloud_list_subscriptions will return not_configured "
+            "errors until credentials are supplied.",
+            file=sys.stderr,
+        )
 
-    from .tools import catalog, deals, freight, invoices, orders, quotes, renewals, returns
+    from .tools import catalog, cloud, deals, freight, invoices, orders, quotes, renewals, returns
 
     catalog.register(mcp, client_factory)
     orders.register(mcp, client_factory)
@@ -155,5 +213,6 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     deals.register(mcp, client_factory)
     returns.register(mcp, client_factory)
     freight.register(mcp, client_factory)
+    cloud.register(mcp, cloud_client_factory)
 
     return mcp

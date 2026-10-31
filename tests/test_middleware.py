@@ -109,3 +109,119 @@ def test_header_present_reaches_request_context():
 def test_client_factory_returns_none_without_context():
     settings = Settings()
     assert get_client_from_context(settings) is None
+
+
+def test_missing_cloud_headers_does_not_401_request_with_valid_resellers_headers():
+    # PRD-21595: the two X-IngramMicroCloud-* headers are optional on the
+    # request as a whole -- a caller using only the Resellers tools must
+    # not be forced to also send them. Only the four Resellers headers can
+    # cause a 401 here; Cloud credential absence is handled entirely inside
+    # ingrammicro_cloud_list_subscriptions (NO_CLOUD_TOKEN envelope).
+    app, _ = _make_app()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "X-IngramMicro-Client-Id": "id",
+                "X-IngramMicro-Client-Secret": "secret",
+                "X-IngramMicro-Customer-Number": "20-222222",
+                "X-IngramMicro-Country-Code": "US",
+            },
+        )
+        assert resp.status_code != 401
+
+
+def test_cloud_header_present_reaches_request_context_and_resets():
+    # Same shape as test_header_present_reaches_request_context above, for
+    # the separate Cloud contextvar.
+    import asyncio
+
+    from ingrammicro_mcp.server import GatewayTokenMiddleware, _gateway_cloud_creds_var
+
+    settings = Settings()
+    seen = {}
+
+    async def fake_app(scope, receive, send):
+        seen["cloud_creds"] = _gateway_cloud_creds_var.get()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = GatewayTokenMiddleware(fake_app, settings)
+
+    async def run():
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "headers": [
+                (b"x-ingrammicro-client-id", b"id-123"),
+                (b"x-ingrammicro-client-secret", b"secret-456"),
+                (b"x-ingrammicro-customer-number", b"20-222222"),
+                (b"x-ingrammicro-country-code", b"US"),
+                (b"x-ingrammicrocloud-api-key", b"cloud-key-789"),
+                (b"x-ingrammicrocloud-customer-id", b"cust-42"),
+            ],
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    assert seen["cloud_creds"] == ("cloud-key-789", "cust-42")
+    assert _gateway_cloud_creds_var.get() is None
+
+
+def test_cloud_headers_absent_leaves_cloud_context_none():
+    import asyncio
+
+    from ingrammicro_mcp.server import GatewayTokenMiddleware, _gateway_cloud_creds_var
+
+    settings = Settings()
+    seen = {}
+
+    async def fake_app(scope, receive, send):
+        seen["cloud_creds"] = _gateway_cloud_creds_var.get()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = GatewayTokenMiddleware(fake_app, settings)
+
+    async def run():
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "headers": [
+                (b"x-ingrammicro-client-id", b"id-123"),
+                (b"x-ingrammicro-client-secret", b"secret-456"),
+                (b"x-ingrammicro-customer-number", b"20-222222"),
+                (b"x-ingrammicro-country-code", b"US"),
+            ],
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    assert seen["cloud_creds"] is None
+
+
+def test_cloud_client_factory_returns_none_without_context():
+    from ingrammicro_mcp.server import get_cloud_client_from_context
+
+    settings = Settings()
+    assert get_cloud_client_from_context(settings) is None
