@@ -42,6 +42,22 @@ class Settings(BaseSettings):
     # not a separate credential — override for sandbox testing.
     ingrammicro_base_url: str = "https://api.ingrammicro.com"
 
+    # IM Cloud / CloudBlue Marketplace credentials (PRD-21595, env mode only).
+    # A separate product from the Resellers API above: different auth
+    # (direct API key, no OAuth2 exchange), different base URL, different
+    # credential material.
+    ingrammicro_cloud_api_key: str | None = None
+    ingrammicro_cloud_customer_id: str | None = None
+
+    ingrammicro_cloud_api_key_header: str = "X-IngramMicroCloud-Api-Key"
+    ingrammicro_cloud_customer_id_header: str = "X-IngramMicroCloud-Customer-Id"
+
+    # No hardcoded default, unlike ingrammicro_base_url above: the exact
+    # IM Cloud API host is unverified (see docs/tickets/PRD-21595.md, Q1).
+    # A client with no configured base URL returns a not_configured error
+    # instead of silently calling a guessed host.
+    ingrammicro_cloud_base_url: str | None = None
+
     @property
     def has_credentials(self) -> bool:
         """Returns True if the server can serve API calls.
@@ -57,6 +73,26 @@ class Settings(BaseSettings):
                 self.ingrammicro_client_secret,
                 self.ingrammicro_customer_number,
                 self.ingrammicro_country_code,
+            ]
+        )
+
+    @property
+    def has_cloud_credentials(self) -> bool:
+        """Returns True if the server can serve Cloud Marketplace calls.
+
+        Gateway mode always returns True — each request carries its own
+        credentials (or omits them, in which case the tool itself returns
+        a not_configured error; see server.get_cloud_client_from_context).
+        Env mode requires both Cloud Marketplace settings and the base URL
+        to be set.
+        """
+        if self.auth_mode == "gateway":
+            return True
+        return all(
+            [
+                self.ingrammicro_cloud_api_key,
+                self.ingrammicro_cloud_customer_id,
+                self.ingrammicro_cloud_base_url,
             ]
         )
 
