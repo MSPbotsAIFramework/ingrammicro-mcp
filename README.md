@@ -142,6 +142,7 @@ cached** — every tool call re-authenticates from scratch (same pattern as
 | `X-IngramMicro-Country-Code` | string | Yes | None | None | Two-letter ISO country code (maps to upstream `IM-CountryCode`) | `US` |
 | `X-IngramMicroCloud-Api-Key` | string | No | None | None | API key for the separate IM Cloud / CloudBlue Marketplace API — only needed to call `ingrammicro_cloud_list_subscriptions` / `ingrammicro_cloud_get_subscription` | `ck_abc123...` |
 | `X-IngramMicroCloud-Customer-Id` | string | No | None | None | Customer id in the IM Cloud Marketplace (not the same id space as `X-IngramMicro-Customer-Number` above) | `cust-42` |
+| `X-IngramMicroCloud-Base-Url` | string | No | `INGRAMMICRO_CLOUD_BASE_URL` env value | None | Per-request override of the Cloud Marketplace (Subscriptions) base URL — this reseller's host is region/tenant-specific, not a public constant (see Known Gaps); only needed if the env default is wrong or unset for this tenant | `https://api.cloud.im/marketplace/na` |
 | `X-IngramMicroCloud-Products-Client-Id` | string | No | None | None | Basic-auth client id for the IM Cloud Marketplace **Products** API — a third, independent credential bundle, only needed to call `ingrammicro_cloud_list_products` | `pid-abc123...` |
 | `X-IngramMicroCloud-Products-Client-Secret` | string | No | None | None | Basic-auth client secret for the same `/token` exchange | `psecret-xyz789...` |
 | `X-IngramMicroCloud-Products-Marketplace` | string | No | None | None | Marketplace/region code sent in the `/token` request body | `us` |
@@ -381,7 +382,11 @@ curl -X POST http://localhost:8080/mcp \
   `INGRAMMICRO_CLOUD_BASE_URL` has no hardcoded default specifically so
   the base URL can be set once confirmed, same pattern as the Resellers
   sandbox-URL gap above — only `cloud_api_client.py`'s internals would
-  need to change, not the tools' parameters or any other file.
+  need to change, not the tools' parameters or any other file. **PRD-21596
+  added a per-request override** (`X-IngramMicroCloud-Base-Url`) for the
+  tenant/region-specific-host half of this gap — a caller no longer has to
+  rely on one server-wide env value if a given reseller's host differs;
+  the auth-exchange suspicion above is unaffected by this and still open.
 - **`ingrammicro_cloud_get_subscription`'s by-id lookup is not known to be
   customer-scoped** (PRD-21596): unlike `ingrammicro_cloud_list_subscriptions`,
   which sends `customerId` as a query filter, the by-id endpoint per
