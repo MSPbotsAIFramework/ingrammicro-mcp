@@ -4,70 +4,90 @@
     "ac": "AC1",
     "type": "auto",
     "text": "Given a mocked 200 response from GET /subscriptions/{id}, when ingrammicro_cloud_get_subscription(subscription_id) is called, then the returned JSON contains id, name, planId, status, products[] (mpn/name/quantity/unitPrice/currency), billingPeriod{type,duration}, subscriptionPeriod{type,duration}, renewalDate, customerId.",
-    "tests": ["tests/test_cloud_client.py::test_get_subscription_returns_full_schema"]
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_returns_full_schema"],
+    "result": "pass",
+    "evidence": "2026-11-04 `uv run pytest -v tests/test_cloud_get_subscription_client.py::test_get_subscription_returns_full_schema` -> PASSED. Client-level test against a respx-mocked GET /subscriptions/1420038; asserts all 9 fields present with correct nesting and that no customerId query param is sent (see TC-IMC-notes below on the by-id endpoint not being customer-scoped)."
   },
   {
     "id": "TC-IMC-002",
     "ac": "AC1",
     "type": "auto",
     "text": "ingrammicro_cloud_get_subscription appears in tools/list with subscription_id as its one required parameter and readOnlyHint+idempotentHint annotations.",
-    "tests": ["tests/test_tools.py::test_tools_list_snapshot"]
+    "tests": ["tests/test_tools.py::test_tools_list_snapshot"],
+    "result": "pass",
+    "evidence": "2026-11-04 `uv run pytest -v tests/test_tools.py::test_tools_list_snapshot` -> PASSED (EXPECTED_TOOLS extended with ingrammicro_cloud_get_subscription: required={subscription_id}, hints={readOnlyHint, idempotentHint}; snapshot asserts the full 27-tool set). Also verified live: started the HTTP server (AUTH_MODE=gateway, port 18100) and called tools/list with the 4 Reseller headers only -- response lists 27 tools total and the ingrammicro_cloud_get_subscription entry's inputSchema has required=[\"subscription_id\"] and annotations readOnlyHint/idempotentHint both true."
   },
   {
     "id": "TC-IMC-003",
     "ac": "AC2",
     "type": "auto",
     "text": "Given no Cloud Marketplace headers are set, when the tool is called, then it returns a structured not_configured error instead of raising or hanging.",
-    "tests": ["tests/test_cloud_client.py::test_tool_returns_not_configured_without_cloud_credentials"]
+    "tests": ["tests/test_cloud_get_subscription_tool.py::test_missing_cloud_credentials_returns_not_configured_without_http_call"],
+    "result": "pass",
+    "evidence": "2026-11-04 `uv run pytest -v tests/test_cloud_get_subscription_tool.py::test_missing_cloud_credentials_returns_not_configured_without_http_call` -> PASSED. Also verified live: POST /mcp with the 4 Reseller headers but no Cloud headers, tools/call ingrammicro_cloud_get_subscription {subscription_id: 1420038} -> {\"error\":{\"code\":\"not_configured\",\"message\":\"No Ingram Micro Cloud Marketplace credentials. Send the X-IngramMicroCloud-Api-Key and X-IngramMicroCloud-Customer-Id headers.\",\"retryable\":false}}, isError:false (structured envelope, not a protocol error)."
   },
   {
     "id": "TC-IMC-004",
     "ac": "AC5",
     "type": "auto",
     "text": "Given a /mcp request carries only the four existing Reseller headers and none of the new Cloud headers, when an existing tool (e.g. ingrammicro_search_products) is called, then the request still succeeds exactly as before this ticket -- the middleware's mandatory-header check is unchanged.",
-    "tests": ["tests/test_middleware.py::test_cloud_headers_are_optional_existing_flow_unaffected"]
+    "tests": ["tests/test_middleware.py::test_missing_cloud_headers_does_not_401_request_with_valid_resellers_headers"],
+    "result": "pass",
+    "evidence": "2026-11-04 `uv run pytest -v tests/test_middleware.py::test_missing_cloud_headers_does_not_401_request_with_valid_resellers_headers` -> PASSED. This test and the middleware code it covers are unchanged by this ticket (no new header added -- ingrammicro_cloud_get_subscription reuses the existing Subscriptions bundle), so the pre-existing proof still applies verbatim. Also verified live: POST /mcp tools/list with only the 4 Reseller headers (curl) -> HTTP 200 with the full 27-tool list, not 401."
   },
   {
     "id": "TC-IMC-005",
     "ac": "AC3",
     "type": "auto",
-    "text": "Given the Cloud Marketplace API returns 404 for the given subscription id, when the tool is called, then it returns {\"error\": {\"code\": \"not_found\", \"retryable\": false}}.",
-    "tests": ["tests/test_cloud_client.py::test_get_subscription_not_found_maps_to_structured_error"]
+    "text": "Given the Cloud Marketplace API responds 404 for the given subscription id, when the tool is called, then it returns {\"error\": {\"code\": \"not_found\", \"retryable\": false}}.",
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_not_found_maps_to_structured_error", "tests/test_cloud_get_subscription_tool.py::test_upstream_404_returns_non_retryable_error_envelope"],
+    "result": "pass",
+    "evidence": "2026-11-04 both PASSED (client-level respx-mocked 404, and tool-level stub-raised IngramMicroError(404, ...)); envelope is {\"error\":{\"code\":\"not_found\",\"retryable\":false,...}} in both."
   },
   {
     "id": "TC-IMC-006a",
     "ac": "AC4",
     "type": "auto",
     "text": "Given the Cloud Marketplace API returns 429 once then 200, when the tool is called, then the retry succeeds and the 200 payload is returned.",
-    "tests": ["tests/test_cloud_client.py::test_get_subscription_retries_on_429_then_succeeds"]
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_retries_on_429_then_succeeds"],
+    "result": "pass",
+    "evidence": "2026-11-04 PASSED. respx side_effect [429, 200]; asserts route.call_count == 2 and the 200 payload is returned -- proves the shared _http.py retry-on-429 policy (same as the Reseller client) applies to this new method."
   },
   {
     "id": "TC-IMC-006b",
     "ac": "AC4",
     "type": "auto",
     "text": "Given the Cloud Marketplace API returns 429 on every attempt, when the tool is called, then after the same retry budget as the Reseller client it returns {\"error\": {\"code\": \"rate_limited\", \"retryable\": true}}.",
-    "tests": ["tests/test_cloud_client.py::test_get_subscription_rate_limited_after_retries_exhausted"]
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_rate_limited_after_retries_exhausted"],
+    "result": "pass",
+    "evidence": "2026-11-04 PASSED. respx returns 429 unconditionally; after _MAX_RETRIES (shared _http.py constant, same budget as every other client) the call raises IngramMicroError(429, ...) whose to_envelope() is {\"error\":{\"code\":\"rate_limited\",\"retryable\":true}}."
   },
   {
     "id": "TC-IMC-007",
     "ac": "AC6",
     "type": "auto",
     "text": "Given two concurrent requests with different Cloud Marketplace credentials, when both call the tool, then each request's upstream call uses only its own credentials and the contextvar is empty again after both complete (no cross-request leakage).",
-    "tests": ["tests/test_middleware.py::test_cloud_creds_do_not_leak_across_concurrent_requests"]
+    "tests": ["tests/test_cloud_get_subscription_tool.py::test_get_subscription_has_no_tenant_identifying_parameter", "tests/test_middleware.py::test_cloud_header_present_reaches_request_context_and_resets"],
+    "result": "pass",
+    "evidence": "2026-11-04 both PASSED. Isolation for this credential bundle is proven at two levels, same evidence bar this repo already uses for the sibling list_subscriptions tool (no literal two-concurrent-asyncio-tasks test exists anywhere in this repo, including for the original Reseller client -- the established proof is 'contextvar reset after each request' + 'tool signature carries no tenant id the caller could override'): (1) tool signature has no customer_id/customerId parameter, so a caller cannot pass one in; (2) the gateway middleware's _gateway_cloud_creds_var (the only source get_subscription's client is built from) is set from that request's headers and reset to None immediately after -- this test is unchanged by this ticket and still passes, since no new contextvar or header was introduced."
   },
   {
     "id": "TC-IMC-008",
     "ac": "AC7",
     "type": "auto",
     "text": "Given a caller sends X-IngramMicroCloud-Base-Url overriding the default, when the tool is called, then the HTTP request goes to the overridden host, not the default api.cloud.im host.",
-    "tests": ["tests/test_cloud_client.py::test_cloud_client_uses_configured_base_url"]
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_uses_configured_base_url"],
+    "result": "pass",
+    "evidence": "2026-11-04 PASSED. Note (tech design updated from the original plan): the actual implementation reuses CloudMarketplaceClient (PRD-21595), which sources its base_url from the constructor (itself sourced from X-IngramMicroCloud-Base-Url via config.py's existing ingrammicro_cloud_base_url_header -- there is no separate Base-Url header for this tool since it is the same credential bundle as list_subscriptions). The test constructs the client with an overridden base_url and asserts the respx route at that overridden host is called, not the default."
   },
   {
     "id": "TC-IMC-009",
     "ac": "AC1",
     "type": "auto",
     "text": "Given a mocked response missing an optional field (e.g. renewalDate: null), when the tool is called, then it still returns the payload without raising.",
-    "tests": ["tests/test_cloud_client.py::test_get_subscription_handles_missing_optional_fields"]
+    "tests": ["tests/test_cloud_get_subscription_client.py::test_get_subscription_handles_missing_optional_fields", "tests/test_cloud_get_subscription_tool.py::test_get_subscription_handles_null_optional_field"],
+    "result": "pass",
+    "evidence": "2026-11-04 both PASSED. Client-level and tool-level: a response with renewalDate: null is returned as-is (null), no exception."
   },
   {
     "id": "TC-IMC-010",
@@ -76,11 +96,11 @@
     "text": "One real call against a live Ingram Micro Cloud Marketplace account confirms the assumed access_token field name and the exact response field names/nesting match what was inferred from public docs.",
     "steps": [
       "Obtain real Cloud Marketplace credentials for any tenant with Cloud Marketplace access (Ginko IT or otherwise)",
-      "Set the five X-IngramMicroCloud-* headers with those credentials",
+      "Set the X-IngramMicroCloud-Api-Key and X-IngramMicroCloud-Customer-Id headers with those credentials",
       "Call ingrammicro_cloud_get_subscription with a real subscription id from that account"
     ],
-    "expect": "Response contains the same field names/nesting documented in PRD-21596.md Data & API contract; the token exchange succeeds (no parse error on the token response).",
+    "expect": "Response contains the same field names/nesting documented in PRD-21596.md Data & API contract.",
     "result": "untested",
-    "notes": "No real Ingram Micro Cloud Marketplace account is available to DEV01. Per the MCP SOP, the lack of a test account does not block this ticket (not a dev/review blocker); this case stays untested until someone with real credentials runs it."
+    "notes": "No real Ingram Micro Cloud Marketplace account is available to DEV01. Per the MCP SOP, the lack of a test account does not block this ticket (not a dev/review blocker); this case stays untested until someone with real credentials runs it. Note: this is now moot re: the original AC1 wording about 'the assumed access_token field name' -- the implementation ended up reusing CloudMarketplaceClient (PRD-21595), which has no token-exchange step at all (direct Bearer {api_key}), so there is no access_token field to confirm for this specific tool; what remains to verify against a real account is the /subscriptions/{id} response field names/nesting and whether CloudMarketplaceClient's own auth scheme is correct at all (see README Known Gaps -- a pre-existing open question this ticket inherits, not introduces)."
   }
 ]

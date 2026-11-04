@@ -15,6 +15,17 @@ step, re-verify against a real account or the PDF below before relying on
 this for a new capability — see CloudMarketplaceProductsClient's docstring
 for what that PDF actually says once it *is* reachable.
 
+get_subscription (PRD-21596, get-by-id): added to this same class rather
+than a new client/credential bundle -- it is the same Subscriptions object
+and the same account as list_subscriptions above, just fetched by id. This
+means it inherits list_subscriptions' open question (the PDF found for
+CloudMarketplaceProductsClient suggests this class's auth exchange may be
+wrong -- see README Known Gaps and this ticket's docs/tickets/PRD-21596.md
+Decisions). Not fixed here: changing a credential/auth contract that
+PRD-21595 already shipped and that was already reviewed and merged is a
+separate, larger change than "add one more read method", and is flagged as
+a suggested follow-up rather than done as a drive-by fix.
+
 CloudMarketplaceProductsClient (PRD-21597, products): built against
 Ingram Micro's own "Cloud Marketplace API.pdf"
 (developer.ingrammicro.com/sites/default/files/2025-11/Cloud%20Marketplace%20API.pdf),
@@ -104,6 +115,29 @@ class CloudMarketplaceClient:
                     "Accept": "application/json",
                 },
                 params=clean_params,
+            )
+        except _RequestFailed as e:
+            raise IngramMicroError(0, e.message) from e
+        return self._handle(resp)
+
+    async def get_subscription(self, subscription_id: str) -> Any:
+        """GET {base_url}/subscriptions/{id} (PRD-21596). Same client, same
+        auth header, same retry policy as list_subscriptions above -- this
+        is the same Subscriptions object, just fetched by id instead of
+        listed. No customer_id query param: per apidocs.cloud.im
+        ("/1.9/howto/subscriptions/"), the by-id lookup is not filtered by
+        customer, unlike the list endpoint -- this call relies on the
+        upstream API itself scoping the id to what this client's api_key
+        can see, same trust boundary as every other call this client makes.
+        """
+        try:
+            resp = await _request_with_retry(
+                "GET",
+                f"{self._base_url}/subscriptions/{subscription_id}",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Accept": "application/json",
+                },
             )
         except _RequestFailed as e:
             raise IngramMicroError(0, e.message) from e

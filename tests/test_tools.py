@@ -46,8 +46,9 @@ EXPECTED_TOOLS = {
     "ingrammicro_create_return": ({"returns"}, {"destructiveHint"}),
     # freight
     "ingrammicro_get_freight_estimate": ({"requester_email", "lines"}, _RO),
-    # cloud marketplace (PRD-21595)
+    # cloud marketplace (PRD-21595, PRD-21596)
     "ingrammicro_cloud_list_subscriptions": (set(), _RO),
+    "ingrammicro_cloud_get_subscription": ({"subscription_id"}, _RO),
     # cloud marketplace products (PRD-21597)
     "ingrammicro_cloud_list_products": (set(), _RO),
 }
