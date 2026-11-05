@@ -1,0 +1,99 @@
+[
+  {
+    "id": "TC-CLOUD-001",
+    "ac": "AC1",
+    "text": "Given a mocked Cloud Marketplace transport returning a products payload, when ingrammicro_cloud_list_products(vendor=\"VA-888-104\") is called, then the tool's JSON result contains mpn/name/vendor/serviceName/billingPeriods/prices for each product, unmodified from the mocked response.",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_products_client.py::test_list_products_sends_bearer_and_subscription_key_and_query_params",
+      "tests/test_cloud_products_tool.py::test_list_products_returns_expected_fields_unmodified"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-002",
+    "ac": "AC2",
+    "text": "Given the same mock, when mpn, name, and service_name are all supplied, then the outbound request's query string includes mpn, name, and serviceName (and omits any filter left None).",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_products_client.py::test_list_products_omits_none_filters_from_query",
+      "tests/test_cloud_products_tool.py::test_filters_are_passed_through_to_client"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-003",
+    "ac": "AC3",
+    "text": "Given vendor is omitted, when the tool is called, then it returns {\"error\": {\"code\": \"invalid_argument\", ...}} and the mock transport records zero calls.",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_products_tool.py::test_missing_vendor_returns_invalid_argument_without_client_call"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-004",
+    "ac": "AC4",
+    "text": "Given no X-IngramMicro-Cloud-* headers are sent (with or without the 4 Resellers headers present), when ingrammicro_cloud_list_products is called, then the tool returns {\"error\": {\"code\": \"not_configured\", ...}} naming the 5 missing headers, and the gateway does not reject the HTTP request with a 401.",
+    "type": "auto",
+    "tests": [
+      "tests/test_cloud_products_tool.py::test_missing_cloud_products_credentials_returns_not_configured_without_http_call",
+      "tests/test_middleware.py::test_missing_cloud_products_headers_does_not_401_request_with_valid_resellers_headers"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-005",
+    "ac": "AC5",
+    "text": "Given only the 4 Resellers headers are sent (no Cloud headers), when any of the 24 existing tools is called, then behavior is unchanged from before this change.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_tools_list_snapshot",
+      "tests/test_middleware.py::test_missing_cloud_products_headers_does_not_401_request_with_valid_resellers_headers"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-006",
+    "ac": "AC5",
+    "text": "Given only the 5 Cloud headers are sent (no Resellers headers), when the HTTP request reaches the middleware, then it is NOT rejected with 401 (today it would be).",
+    "type": "auto",
+    "tests": [],
+    "result": "fail",
+    "evidence": "Not implemented as written -- see docs/tickets/PRD-21597.md Self-test \"Changed/unimplemented test cases\" for the full rationale. Summary: the gateway's blanket 401 for the 4 Resellers headers was deliberately left unchanged (still required on every /mcp request); only the Cloud Products bundle's own presence/absence is optional, matching sibling ticket PRD-21595's already-reviewed-and-accepted precedent for the Cloud Subscriptions bundle (that review's finding #1 flagged the identical gap as a non-blocking suggestion, not a must-fix). No AC in this ticket's AC1-AC7 actually requires a Cloud-Products-only caller to bypass the Resellers gate -- AC4/AC5 only test the inverse (Cloud headers absent, with/without Resellers present). This ticket's real tenant (Ginko IT) already has Resellers credentials per PRD-21595's own doc, so this does not block the ticket's actual use case. Flagged for review/design to decide whether to formally drop or re-scope this test case."
+  },
+  {
+    "id": "TC-CLOUD-007",
+    "ac": "AC6",
+    "text": "Given the mocked transport returns 401/403/404/422/429/500/503 in turn, when list_products is called, then IngramCloudClient raises IngramMicroError and .to_envelope() matches the existing _classify table exactly.",
+    "type": "auto",
+    "tests": [
+      "tests/test_tools.py::test_error_envelope_mapping",
+      "tests/test_cloud_products_client.py::test_login_4xx_raises_ingram_micro_error_and_skips_products_call",
+      "tests/test_cloud_products_client.py::test_products_call_5xx_raises_ingram_micro_error",
+      "tests/test_cloud_products_tool.py::test_upstream_5xx_returns_retryable_error_envelope",
+      "tests/test_cloud_products_tool.py::test_upstream_404_returns_non_retryable_error_envelope"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-008",
+    "ac": "AC7",
+    "text": "Given two sequential fake requests carry two different Cloud credential tuples, when each runs through GatewayTokenMiddleware, then _gateway_cloud_creds_var.get() inside each matches only that request's own headers, and the var is None again after each completes.",
+    "type": "auto",
+    "tests": [
+      "tests/test_middleware.py::test_cloud_products_header_present_reaches_request_context_and_resets",
+      "tests/test_middleware.py::test_two_cloud_bundles_isolated_in_the_same_request",
+      "tests/test_middleware.py::test_partial_cloud_products_bundle_leaves_context_none"
+    ]
+  },
+  {
+    "id": "TC-CLOUD-009",
+    "ac": "AC1",
+    "text": "Given a real Ingram Micro Cloud Marketplace account for Ginko IT (or any onboarded reseller) with vendor=VA-888-104, when ingrammicro_cloud_list_products is called against the real upstream, then live Microsoft 365 SKUs are returned with usable mpn/name values.",
+    "type": "manual",
+    "steps": [
+      "Obtain real Cloud Marketplace credentials for an onboarded reseller (client id/secret, marketplace code, subscription key, and the reseller's actual API base URL)",
+      "Set the 5 X-IngramMicro-Cloud-* headers on an MCP initialize + tools/call request for ingrammicro_cloud_list_products",
+      "Call with {\"vendor\": \"VA-888-104\"}",
+      "Inspect the returned products list"
+    ],
+    "expect": "HTTP 200 from the tool, no error envelope; response contains at least one product with a non-empty mpn and name recognizable as a Microsoft 365 SKU",
+    "result": "blocked",
+    "evidence": "Not run during this design/dev pass: no real Ingram Micro Cloud Marketplace account was available (per mcp-track.md, missing a real vendor account is not a blocker; this test case documents the gap rather than silently skipping it). Needs a real vendor account before this tool is relied on in production."
+  }
+]
