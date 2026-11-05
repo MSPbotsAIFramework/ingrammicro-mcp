@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     # instead of silently calling a guessed host.
     ingrammicro_cloud_base_url: str | None = None
 
+    # Per-request override for the above (PRD-21596): the Cloud Marketplace
+    # base host is tenant/region-specific (confirmed via public Ingram
+    # integration guides, same fact CloudMarketplaceProductsClient's own
+    # per-request Base-Url header already relies on below) and cannot be
+    # a single value for every reseller using this connector, so a caller
+    # may send this header to override ingrammicro_cloud_base_url for just
+    # that request. Optional -- absent means "use the env-configured
+    # default", same fallback this setting already had before this header
+    # existed; this is purely additive, not a behavior change for existing
+    # callers that never send it.
+    ingrammicro_cloud_base_url_header: str = "X-IngramMicroCloud-Base-Url"
+
     # IM Cloud Marketplace "Products" credentials (PRD-21597, env mode
     # only). A third, independent credential bundle within the same IM
     # Cloud / CloudBlue Marketplace product line as the two settings

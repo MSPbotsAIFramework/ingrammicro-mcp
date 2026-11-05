@@ -175,8 +175,111 @@ def test_cloud_header_present_reaches_request_context_and_resets():
         await middleware(scope, receive, send)
 
     asyncio.run(run())
-    assert seen["cloud_creds"] == ("cloud-key-789", "cust-42")
+    # Third element (base_url_override) is None -- this request didn't send
+    # the optional X-IngramMicroCloud-Base-Url header (PRD-21596).
+    assert seen["cloud_creds"] == ("cloud-key-789", "cust-42", None)
     assert _gateway_cloud_creds_var.get() is None
+
+
+def test_cloud_header_present_with_base_url_override_reaches_request_context():
+    # PRD-21596: the optional per-request base-url override reaches the
+    # contextvar as the third tuple element, alongside the two PRD-21595
+    # credential headers -- same shape as the test above, with the header
+    # added.
+    import asyncio
+
+    from ingrammicro_mcp.server import GatewayTokenMiddleware, _gateway_cloud_creds_var
+
+    settings = Settings()
+    seen = {}
+
+    async def fake_app(scope, receive, send):
+        seen["cloud_creds"] = _gateway_cloud_creds_var.get()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = GatewayTokenMiddleware(fake_app, settings)
+
+    async def run():
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "headers": [
+                (b"x-ingrammicro-client-id", b"id-123"),
+                (b"x-ingrammicro-client-secret", b"secret-456"),
+                (b"x-ingrammicro-customer-number", b"20-222222"),
+                (b"x-ingrammicro-country-code", b"US"),
+                (b"x-ingrammicrocloud-api-key", b"cloud-key-789"),
+                (b"x-ingrammicrocloud-customer-id", b"cust-42"),
+                (b"x-ingrammicrocloud-base-url", b"https://override.example.test/marketplace/eu"),
+            ],
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    assert seen["cloud_creds"] == (
+        "cloud-key-789",
+        "cust-42",
+        "https://override.example.test/marketplace/eu",
+    )
+    assert _gateway_cloud_creds_var.get() is None
+
+
+def test_get_cloud_client_from_context_uses_base_url_override_over_env_default():
+    # PRD-21596: get_cloud_client_from_context must prefer the per-request
+    # override over settings.ingrammicro_cloud_base_url when both are present.
+    import asyncio
+
+    from ingrammicro_mcp.server import (
+        GatewayTokenMiddleware,
+        get_cloud_client_from_context,
+    )
+
+    settings = Settings(ingrammicro_cloud_base_url="https://env-default.example.test")
+    seen = {}
+
+    async def fake_app(scope, receive, send):
+        client = get_cloud_client_from_context(settings)
+        seen["base_url"] = client._base_url if client else None
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = GatewayTokenMiddleware(fake_app, settings)
+
+    async def run():
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "headers": [
+                (b"x-ingrammicro-client-id", b"id-123"),
+                (b"x-ingrammicro-client-secret", b"secret-456"),
+                (b"x-ingrammicro-customer-number", b"20-222222"),
+                (b"x-ingrammicro-country-code", b"US"),
+                (b"x-ingrammicrocloud-api-key", b"cloud-key-789"),
+                (b"x-ingrammicrocloud-customer-id", b"cust-42"),
+                (b"x-ingrammicrocloud-base-url", b"https://override.example.test/marketplace/eu"),
+            ],
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            pass
+
+        await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    assert seen["base_url"] == "https://override.example.test/marketplace/eu"
 
 
 def test_cloud_headers_absent_leaves_cloud_context_none():
@@ -457,7 +560,7 @@ def test_two_cloud_bundles_isolated_in_the_same_request():
         await middleware(scope, receive, send)
 
     asyncio.run(run())
-    assert seen["cloud_creds"] == ("cloud-key-789", "cust-42")
+    assert seen["cloud_creds"] == ("cloud-key-789", "cust-42", None)
     assert seen["cloud_products_creds"] == (
         "pid-123",
         "psecret-456",

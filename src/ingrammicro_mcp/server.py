@@ -23,11 +23,15 @@ _gateway_creds_var: contextvars.ContextVar[tuple[str, str, str, str] | None] = (
 )
 
 # Same pattern, for the separate IM Cloud / CloudBlue Marketplace
-# credentials (PRD-21595). Value is (api_key, customer_id). Unlike the
-# four Resellers headers above, these are optional on the request as a
-# whole — a caller that only wants the Resellers tools should not be
-# forced to also send Cloud credentials (see GatewayTokenMiddleware).
-_gateway_cloud_creds_var: contextvars.ContextVar[tuple[str, str] | None] = (
+# credentials (PRD-21595, extended PRD-21596). Value is (api_key,
+# customer_id, base_url_override). The third element is None unless the
+# caller sent the optional per-request Base-Url header (PRD-21596) — when
+# None, get_cloud_client_from_context falls back to the env-configured
+# settings.ingrammicro_cloud_base_url, same as before that header existed.
+# Unlike the four Resellers headers above, this whole bundle is optional
+# on the request — a caller that only wants the Resellers tools should not
+# be forced to also send Cloud credentials (see GatewayTokenMiddleware).
+_gateway_cloud_creds_var: contextvars.ContextVar[tuple[str, str, str | None] | None] = (
     contextvars.ContextVar("ingrammicro_gateway_cloud_creds", default=None)
 )
 
@@ -76,18 +80,22 @@ def get_cloud_client_from_context(settings: Settings) -> CloudMarketplaceClient 
     headers/settings/base URL are not present — this is expected for any
     caller that only uses the Resellers tools.
     """
+    base_url_override = None
     if settings.auth_mode == "gateway":
         creds = _gateway_cloud_creds_var.get()
         if creds is None:
             return None
-        api_key, customer_id = creds
+        api_key, customer_id, base_url_override = creds
     else:
         api_key = settings.ingrammicro_cloud_api_key
         customer_id = settings.ingrammicro_cloud_customer_id
 
-    if not api_key or not customer_id or not settings.ingrammicro_cloud_base_url:
+    # Per-request override (PRD-21596) takes precedence over the
+    # env-configured default — see _gateway_cloud_creds_var's docstring.
+    base_url = base_url_override or settings.ingrammicro_cloud_base_url
+    if not api_key or not customer_id or not base_url:
         return None
-    return CloudMarketplaceClient(api_key, customer_id, settings.ingrammicro_cloud_base_url)
+    return CloudMarketplaceClient(api_key, customer_id, base_url)
 
 
 def get_cloud_products_client_from_context(
@@ -172,9 +180,15 @@ class GatewayTokenMiddleware:
         # NO_CLOUD_TOKEN envelope (AC5) — no 401 here.
         cloud_api_key = request.headers.get(s.ingrammicro_cloud_api_key_header.lower())
         cloud_customer_id = request.headers.get(s.ingrammicro_cloud_customer_id_header.lower())
+        # Optional per-request base-url override (PRD-21596) — absent is
+        # fine, get_cloud_client_from_context falls back to the
+        # env-configured settings.ingrammicro_cloud_base_url.
+        cloud_base_url_override = request.headers.get(s.ingrammicro_cloud_base_url_header.lower())
         cloud_token = None
         if cloud_api_key and cloud_customer_id:
-            cloud_token = _gateway_cloud_creds_var.set((cloud_api_key, cloud_customer_id))
+            cloud_token = _gateway_cloud_creds_var.set(
+                (cloud_api_key, cloud_customer_id, cloud_base_url_override)
+            )
 
         # Cloud Marketplace Products headers (PRD-21597) — same "read the
         # same way, not required on the request as a whole" treatment as
