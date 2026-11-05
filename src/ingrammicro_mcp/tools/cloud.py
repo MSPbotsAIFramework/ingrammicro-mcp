@@ -1,13 +1,16 @@
 """IM Cloud / CloudBlue Marketplace tools — read-only.
 
-Added for PRD-21595 (ingrammicro_cloud_list_subscriptions) and extended
-for PRD-21597 (ingrammicro_cloud_list_products). Separate from every other
-tool module in this repo: those all wrap the Resellers API via
-IngramMicroClient; this one wraps the distinct IM Cloud / CloudBlue
-Marketplace product line — itself split across two independent client
-classes with two different, separately-verified auth schemes (see
-cloud_api_client.py's module docstring). See docs/tickets/PRD-21595.md
-and docs/tickets/PRD-21597.md for the design rationale for each tool.
+Added for PRD-21595 (ingrammicro_cloud_list_subscriptions), extended for
+PRD-21597 (ingrammicro_cloud_list_products), and extended again for
+PRD-21596 (ingrammicro_cloud_get_subscription — same Subscriptions object
+and credential bundle as PRD-21595's tool, fetched by id instead of
+listed). Separate from every other tool module in this repo: those all
+wrap the Resellers API via IngramMicroClient; this one wraps the distinct
+IM Cloud / CloudBlue Marketplace product line — itself split across two
+independent client classes with two different, separately-verified auth
+schemes (see cloud_api_client.py's module docstring). See
+docs/tickets/PRD-21595.md, docs/tickets/PRD-21597.md and
+docs/tickets/PRD-21596.md for the design rationale for each tool.
 """
 
 from collections.abc import Callable
@@ -80,6 +83,32 @@ def register(
                 creation_date_from=creation_date_from,
                 creation_date_to=creation_date_to,
             )
+            return dump_json_capped(result)
+        except IngramMicroError as e:
+            return e.to_envelope()
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True))
+    async def ingrammicro_cloud_get_subscription(
+        subscription_id: Annotated[
+            str,
+            Field(
+                description="The Cloud Marketplace subscription id to fetch "
+                '(e.g. "1420038"). Required.'
+            ),
+        ],
+    ) -> str:
+        """Fetch one Ingram Micro Cloud Marketplace subscription's full
+        detail (billing period, subscription period, product lines with
+        mpn/quantity, renewal date) by its id. Use this before placing a
+        quantity-change order on a subscription found via
+        ingrammicro_cloud_list_subscriptions. Uses the same credentials as
+        ingrammicro_cloud_list_subscriptions (no separate credential bundle).
+        """
+        client = cloud_client_factory()
+        if client is None:
+            return NO_CLOUD_TOKEN
+        try:
+            result = await client.get_subscription(subscription_id)
             return dump_json_capped(result)
         except IngramMicroError as e:
             return e.to_envelope()
