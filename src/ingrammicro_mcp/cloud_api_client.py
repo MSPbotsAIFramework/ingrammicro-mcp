@@ -3,6 +3,16 @@ line — separate from the Ingram Micro Resellers API that api_client.py
 wraps, and (see below) internally split into two further sub-APIs with
 two different, verified-separately auth schemes.
 
+CloudMarketplaceClient.create_change_order (PRD-21598): added on top of
+the already-merged list_subscriptions (PRD-21595) client below, per that
+ticket's own design note that whichever of the two tickets lands second
+should add its method to the already-merged client rather than
+re-creating the file (docs/tickets/PRD-21595.md and PRD-21598.md, Tech
+design -> Risks, Decision 4). Same api_key/customer_id/base_url, same
+`Authorization: Bearer {api_key}` auth, same `_handle`/error shape —
+built against the same verified CloudBlue Simple API "Change Order"
+contract (docs.cloudblue.com/cbc/21.0/Simple-API/how-to-use/howto/orders/).
+
 CloudMarketplaceClient (PRD-21595, subscriptions): built against the
 independently-verified CloudBlue "Simple API" contract
 (docs.cloudblue.com/cbc/21.0/Simple-API/how-to-use/howto/subscriptions/),
@@ -104,6 +114,56 @@ class CloudMarketplaceClient:
                     "Accept": "application/json",
                 },
                 params=clean_params,
+            )
+        except _RequestFailed as e:
+            raise IngramMicroError(0, e.message) from e
+        return self._handle(resp)
+
+    async def create_change_order(
+        self,
+        subscription_id: str,
+        products: list[dict],
+        po_number: str | None = None,
+        billing_period: dict | None = None,
+        subscription_period: dict | None = None,
+        total: dict | None = None,
+    ) -> Any:
+        """POST {base_url}/orders with type="change" to add or remove
+        license seats on an existing subscription. `subscription_id` is a
+        tool-level parameter (one subscription per call) but is placed
+        inside each `products[]` item in the request body as
+        `subscriptionId`, matching the one verified CloudBlue example
+        (docs/tickets/PRD-21598.md, Tech design Decision 1) — not a
+        top-level request field.
+
+        `products[]` items carry the caller-supplied fields as-is
+        (`mpn`, `quantity` as the new TOTAL count, optional `name`,
+        `parameters`, `deals`) with `subscriptionId` merged in; nothing
+        here renames, drops, or defaults any of those fields.
+        """
+        body: dict[str, Any] = {
+            "customerId": self._customer_id,
+            "type": "change",
+            "products": [{**item, "subscriptionId": subscription_id} for item in products],
+        }
+        if po_number is not None:
+            body["poNumber"] = po_number
+        if billing_period is not None:
+            body["billingPeriod"] = billing_period
+        if subscription_period is not None:
+            body["subscriptionPeriod"] = subscription_period
+        if total is not None:
+            body["total"] = total
+        try:
+            resp = await _request_with_retry(
+                "POST",
+                f"{self._base_url}/orders",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                json_body=body,
             )
         except _RequestFailed as e:
             raise IngramMicroError(0, e.message) from e

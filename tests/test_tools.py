@@ -48,6 +48,8 @@ EXPECTED_TOOLS = {
     "ingrammicro_get_freight_estimate": ({"requester_email", "lines"}, _RO),
     # cloud marketplace (PRD-21595)
     "ingrammicro_cloud_list_subscriptions": (set(), _RO),
+    # cloud marketplace change orders (PRD-21598)
+    "ingrammicro_cloud_create_change_order": (set(), {"destructiveHint"}),
     # cloud marketplace products (PRD-21597)
     "ingrammicro_cloud_list_products": (set(), _RO),
 }
@@ -59,6 +61,7 @@ EXPECTED_TOOLS = {
 _LONG_DESCRIPTION_EXCEPTIONS = {
     "ingrammicro_create_order",
     "ingrammicro_create_cloud_order",
+    "ingrammicro_cloud_create_change_order",
 }
 
 

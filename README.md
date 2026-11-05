@@ -193,13 +193,13 @@ No credentials are required for the health endpoint.
 
 ## Tool List
 
-26 tools: 24 covering every non-webhook endpoint in Ingram Micro's
-Resellers API, plus 2 for the separate IM Cloud Marketplace product line
-(see below — subscriptions and products are independent credential
-bundles). Every order-placing/modifying tool spends real money against the
-reseller's Ingram Micro net-terms account — **Ingram Micro does not
-support credit-card API ordering**, only net-terms trade credit, so a
-mistaken order is a real invoice, not a rejected charge.
+27 tools: 24 covering every non-webhook endpoint in Ingram Micro's
+Resellers API, plus 3 for the separate IM Cloud Marketplace product line
+(see below — subscriptions/change-orders and products are independent
+credential bundles). Every order-placing/modifying tool spends real money
+against the reseller's Ingram Micro net-terms account — **Ingram Micro
+does not support credit-card API ordering**, only net-terms trade credit,
+so a mistaken order is a real invoice, not a rejected charge.
 
 ### Catalog (corresponds to the official MCP: Product Info & Pricing)
 
@@ -267,16 +267,18 @@ mistaken order is a real invoice, not a rejected charge.
 
 ### Cloud Marketplace (new — IM Cloud API, distinct from the Resellers API above)
 
-A separate Ingram Micro product line (Cloud Marketplace subscriptions and
-products, e.g. Microsoft 365 plans/SKUs), itself split into two
-independent sub-APIs with two different auth schemes and credential
-headers — see HEADER Authorization Parameters above. Neither requires the
-four Resellers headers, and the two Cloud Marketplace tools below do not
-require each other's headers.
+A separate Ingram Micro product line (Cloud Marketplace subscriptions,
+change orders, and products, e.g. Microsoft 365 plans/SKUs), itself split
+into two independent sub-APIs with two different auth schemes and
+credential headers — see HEADER Authorization Parameters above. Neither
+requires the four Resellers headers; `ingrammicro_cloud_list_subscriptions`
+and `ingrammicro_cloud_create_change_order` share one credential bundle,
+`ingrammicro_cloud_list_products` uses a separate, independent one.
 
 | Tool | Description | Method + Path |
 |---|---|---|
 | `ingrammicro_cloud_list_subscriptions` | List this customer's Cloud Marketplace subscriptions (filterable by status, creation-date range) — use to find the subscription to add/remove seats on | GET /subscriptions |
+| `ingrammicro_cloud_create_change_order` | Add or remove license seats on an existing Cloud Marketplace subscription (`quantity` is the new TOTAL, not a delta) — asynchronous, returns only the initial acknowledgement | POST /orders |
 | `ingrammicro_cloud_list_products` | Look up sellable Cloud Marketplace products by vendor code (filterable by mpn/name/serviceName, paginated) — use to find a Microsoft 365 (or other vendor) SKU mpn/name to quote | GET /products |
 
 Complex nested parameters (`lines`/`ship_to_info`/`end_user_info`/`reseller_info`/`shipment_details`/`additional_attributes`/`products`/`returns`, etc.) are passed as `dict`/`list[dict]`; see each tool's own parameter description for the exact fields (field names have been verified against the official OpenAPI spec).
@@ -375,6 +377,19 @@ curl -X POST http://localhost:8080/mcp \
   the base URL can be set once confirmed, same pattern as the Resellers
   sandbox-URL gap above — only `cloud_api_client.py`'s internals would
   need to change, not the tool's parameters or any other file.
+- **IM Cloud change orders (`ingrammicro_cloud_create_change_order`,
+  PRD-21598) share the same unverified base URL / auth exchange as
+  `ingrammicro_cloud_list_subscriptions` above (same client, same gap) —
+  plus one more open question of its own: whether Ingram's own deployment
+  actually requires `billing_period`/`subscription_period`/`total` on a
+  quantity-only change order, or treats them as optional like the generic
+  CloudBlue "Simple API" contract this tool was built against
+  (docs.cloudblue.com/cbc/21.0/Simple-API/how-to-use/howto/orders/). Not
+  fixed here — the tool already exposes all three as optional pass-through
+  parameters, so if Ingram's deployment requires them, no code change is
+  needed, only confirmation (see docs/tickets/PRD-21598.md, Open
+  questions, Q1). Not verified against a real account — see Known Gaps
+  intro and TC9 in that ticket's test cases.
 - **IM Cloud Marketplace Products API (`ingrammicro_cloud_list_products`)
   auth scheme is verified against Ingram's own PDF, but the real response
   shape and this reseller's actual base URL are not.** Unlike the
