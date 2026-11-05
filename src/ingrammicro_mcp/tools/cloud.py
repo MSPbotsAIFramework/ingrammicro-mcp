@@ -1,16 +1,20 @@
-"""IM Cloud / CloudBlue Marketplace tools — read-only.
+"""IM Cloud / CloudBlue Marketplace tools.
 
-Added for PRD-21595 (ingrammicro_cloud_list_subscriptions), extended for
-PRD-21597 (ingrammicro_cloud_list_products), and extended again for
-PRD-21596 (ingrammicro_cloud_get_subscription — same Subscriptions object
-and credential bundle as PRD-21595's tool, fetched by id instead of
-listed). Separate from every other tool module in this repo: those all
-wrap the Resellers API via IngramMicroClient; this one wraps the distinct
-IM Cloud / CloudBlue Marketplace product line — itself split across two
-independent client classes with two different, separately-verified auth
-schemes (see cloud_api_client.py's module docstring). See
-docs/tickets/PRD-21595.md, docs/tickets/PRD-21597.md and
-docs/tickets/PRD-21596.md for the design rationale for each tool.
+Added for PRD-21595 (ingrammicro_cloud_list_subscriptions, read-only),
+extended for PRD-21597 (ingrammicro_cloud_list_products, read-only),
+extended again for PRD-21596 (ingrammicro_cloud_get_subscription — same
+Subscriptions object and credential bundle as PRD-21595's tool, fetched by
+id instead of listed), and extended again for PRD-21598
+(ingrammicro_cloud_create_change_order, order-submitting — same
+Subscriptions object and credential bundle as list_subscriptions/
+get_subscription above). Separate from every other tool module in this
+repo: those all wrap the Resellers API via IngramMicroClient; this one
+wraps the distinct IM Cloud / CloudBlue Marketplace product line — itself
+split across two independent client classes with two different,
+separately-verified auth schemes (see cloud_api_client.py's module
+docstring). See docs/tickets/PRD-21595.md, docs/tickets/PRD-21597.md,
+docs/tickets/PRD-21596.md, and docs/tickets/PRD-21598.md for the design
+rationale for each tool.
 """
 
 from collections.abc import Callable
@@ -82,6 +86,108 @@ def register(
                 status=status,
                 creation_date_from=creation_date_from,
                 creation_date_to=creation_date_to,
+            )
+            return dump_json_capped(result)
+        except IngramMicroError as e:
+            return e.to_envelope()
+
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=False))
+    async def ingrammicro_cloud_create_change_order(
+        subscription_id: Annotated[
+            str | None,
+            Field(
+                description="The IM Cloud subscription to change "
+                "(from ingrammicro_cloud_list_subscriptions)."
+            ),
+        ] = None,
+        products: Annotated[
+            list[dict] | None,
+            Field(
+                description='Product line(s) to change, each as {"mpn" (required), '
+                '"quantity" (required, the new TOTAL seat count for this product on '
+                "the subscription — NOT a +1/-1 delta), \"name\"? (str), "
+                '"parameters"? (list[dict], e.g. [{"name": "offer_attestation", '
+                '"structured_value": {"attestation_accepted": true}}] when the vendor '
+                'requires offer attestation), "deals"? ({"agreements": [...], '
+                '"freezePrices": false})}. Omitted/absent optional keys are sent as-is '
+                "(never defaulted or fabricated)."
+            ),
+        ] = None,
+        po_number: Annotated[
+            str | None, Field(description="Purchase order number for this change order.")
+        ] = None,
+        billing_period: Annotated[
+            dict | None,
+            Field(
+                description='{"type": ..., "duration": ...} from the subscription\'s own '
+                "detail, if required."
+            ),
+        ] = None,
+        subscription_period: Annotated[
+            dict | None,
+            Field(
+                description="Same shape as billing_period, from the subscription's own "
+                "detail, if required."
+            ),
+        ] = None,
+        total: Annotated[
+            dict | None,
+            Field(description='{"amount": ..., "currency": ...} for the change order, if required.'),
+        ] = None,
+    ) -> str:
+        """Submit a change order to add or remove license seats on an
+        existing Ingram Micro IM Cloud subscription (e.g. Microsoft 365).
+        `quantity` on each product line is the new TOTAL seat count, not a
+        delta — compute it yourself (current + N to add, current - N to
+        remove) before calling; there is no separate add/remove mode.
+
+        Asynchronous, like this connector's other order tool
+        (ingrammicro_create_cloud_order): this call only returns IM Cloud's
+        initial acknowledgement (id, type, status such as "submitted" or
+        "processing") — the final completed/error result is delivered by
+        IM Cloud outside this tool, not observable here.
+
+        Real money / real billing change against an active paid
+        subscription — always confirm the subscription, product, and new
+        total quantity with a human before calling. Use
+        ingrammicro_cloud_list_subscriptions first to find the current
+        quantity if you don't already have it.
+        """
+        client = cloud_client_factory()
+        if client is None:
+            return NO_CLOUD_TOKEN
+        if not subscription_id:
+            return error_envelope(
+                "invalid_argument", "subscription_id is required and was not given.", False
+            )
+        if not products:
+            return error_envelope(
+                "invalid_argument", "products is required and must be a non-empty list.", False
+            )
+        for item in products:
+            if not isinstance(item, dict) or not item.get("mpn"):
+                return error_envelope(
+                    "invalid_argument", "each products item requires mpn.", False
+                )
+            quantity = item.get("quantity")
+            if quantity is None:
+                return error_envelope(
+                    "invalid_argument", "each products item requires quantity.", False
+                )
+            if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 0:
+                return error_envelope(
+                    "invalid_argument",
+                    f"quantity must be a non-negative integer, got {quantity!r}.",
+                    False,
+                )
+        try:
+            result = await client.create_change_order(
+                subscription_id=subscription_id,
+                products=products,
+                po_number=po_number,
+                billing_period=billing_period,
+                subscription_period=subscription_period,
+                total=total,
             )
             return dump_json_capped(result)
         except IngramMicroError as e:
